@@ -1,0 +1,334 @@
+"""FastAPI surface for FinShield.
+
+Everything the API returns is display-facing, so this module is the mapping
+layer: rule keys and category values are snake_case internally and are converted
+to human labels here. ``is_fraud`` is evaluation ground truth and never appears
+in a response — the request models reject it outright.
+
+The routes depend on the ``TransactionRepository`` protocol, not on
+``InMemoryRepository``, and the repository is supplied as a dependency so tests
+and a future Postgres store can swap it.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime
+from functools import lru_cache
+from typing import Optional
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ConfigDict, Field
+
+from .detection import assess, category_label
+from .explainer import explain, indicator_label
+from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
+from .repository import InMemoryRepository, TransactionRepository
+
+load_dotenv()
+
+app = FastAPI(
+    title="FinShield",
+    version="0.1.0",
+    description="Transaction risk assessment. Scores are produced by a deterministic rules engine.",
+)
+
+# Locally the default is permissive; deployments set ALLOWED_ORIGINS explicitly.
+_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    # Credentials cannot be combined with a wildcard origin.
+    allow_credentials="*" not in _origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@lru_cache(maxsize=1)
+def _default_repository() -> InMemoryRepository:
+    return InMemoryRepository.from_generated()
+
+
+def get_repository() -> TransactionRepository:
+    """Dependency override point: tests and other stores replace this."""
+    return _default_repository()
+
+
+# --- Views ---------------------------------------------------------------------
+#
+# Reader-facing shapes. No snake_case identifiers, no ground truth.
+
+
+class IndicatorView(BaseModel):
+    indicator: str
+    severity: float
+    weight: float
+    points: float
+    detail: str
+
+    @classmethod
+    def of(cls, flag: FraudFlag) -> "IndicatorView":
+        return cls(
+            indicator=indicator_label(flag.rule),
+            severity=flag.severity,
+            weight=flag.weight,
+            points=flag.points,
+            detail=flag.detail,
+        )
+
+
+class AssessmentView(BaseModel):
+    transaction_id: str
+    risk_score: float
+    risk_level: RiskLevel
+    flagged_for_review: bool
+    indicators: list[IndicatorView]
+
+    @classmethod
+    def of(cls, assessment: RiskAssessment, review_threshold: float) -> "AssessmentView":
+        return cls(
+            transaction_id=assessment.transaction_id,
+            risk_score=assessment.risk_score,
+            risk_level=assessment.risk_level,
+            flagged_for_review=assessment.risk_score >= review_threshold,
+            indicators=[IndicatorView.of(f) for f in assessment.flags],
+        )
+
+
+class TransactionView(BaseModel):
+    transaction_id: str
+    user_id: str
+    amount: float
+    merchant: str
+    # Human label: the underlying category value is snake_case.
+    category: str
+    timestamp: datetime
+    city: str
+    state: str
+    risk_score: float
+    risk_level: RiskLevel
+    flagged_for_review: bool
+    indicator_count: int
+
+    @classmethod
+    def of(
+        cls, txn: Transaction, assessment: RiskAssessment, review_threshold: float
+    ) -> "TransactionView":
+        return cls(
+            transaction_id=txn.transaction_id,
+            user_id=txn.user_id,
+            amount=txn.amount,
+            merchant=txn.merchant,
+            category=category_label(txn.category),
+            timestamp=txn.timestamp,
+            city=txn.city,
+            state=txn.state,
+            risk_score=assessment.risk_score,
+            risk_level=assessment.risk_level,
+            flagged_for_review=assessment.risk_score >= review_threshold,
+            indicator_count=len(assessment.flags),
+        )
+
+
+class TransactionDetail(TransactionView):
+    indicators: list[IndicatorView]
+
+
+class CustomerView(BaseModel):
+    user_id: str
+    home_city: str
+    home_state: str
+    average_amount: float
+    typical_categories: list[str]
+    active_hours: str
+    transaction_count: int
+
+    @classmethod
+    def of(cls, profile: UserProfile, transaction_count: int) -> "CustomerView":
+        return cls(
+            user_id=profile.user_id,
+            home_city=profile.home_city,
+            home_state=profile.home_state,
+            average_amount=profile.avg_amount,
+            typical_categories=[category_label(c) for c in profile.typical_categories],
+            active_hours=f"{profile.active_hour_start:02d}:00-{profile.active_hour_end:02d}:59",
+            transaction_count=transaction_count,
+        )
+
+
+class CategoryStat(BaseModel):
+    category: str
+    count: int
+    total_amount: float
+
+
+class IndicatorStat(BaseModel):
+    indicator: str
+    count: int
+
+
+class Stats(BaseModel):
+    total_transactions: int
+    total_customers: int
+    flagged_for_review: int
+    flagged_rate: float
+    risk_levels: dict[RiskLevel, int]
+    by_category: list[CategoryStat]
+    indicators_triggered: list[IndicatorStat]
+
+
+class AnalyzeRequest(BaseModel):
+    """A transaction to score. ``is_fraud`` is deliberately absent and rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    amount: float = Field(gt=0)
+    merchant: str
+    category: Category
+    timestamp: datetime
+    city: str
+    state: str
+    latitude: float
+    longitude: float
+    transaction_id: str = "unassigned"
+
+
+class AnalyzeResponse(BaseModel):
+    assessment: AssessmentView
+    explanation: Optional[str] = None
+    action: Optional[str] = None
+
+
+# --- Routes --------------------------------------------------------------------
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.post("/analyze", response_model=AnalyzeResponse)
+def analyze(
+    request: AnalyzeRequest,
+    explanation: bool = Query(True, description="Include a plain-English explanation."),
+    repo: TransactionRepository = Depends(get_repository),
+) -> AnalyzeResponse:
+    """Score one transaction against the customer's profile and prior activity.
+
+    Scoring is deterministic and happens before any explanation is requested, so
+    the response is identical whether or not an explanation is included.
+    """
+    profile = repo.get_profile(request.user_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"No customer profile for '{request.user_id}'")
+
+    txn = Transaction(**request.model_dump())
+    assessment = assess(txn, profile, repo.get_user_transactions(request.user_id))
+    view = AssessmentView.of(assessment, repo.review_threshold)
+    if not explanation:
+        return AnalyzeResponse(assessment=view)
+
+    written = explain(txn, assessment)
+    return AnalyzeResponse(assessment=view, explanation=written.explanation, action=written.action)
+
+
+@app.get("/users", response_model=list[CustomerView])
+def list_users(repo: TransactionRepository = Depends(get_repository)) -> list[CustomerView]:
+    return [
+        CustomerView.of(profile, len(repo.get_user_transactions(profile.user_id)))
+        for profile in repo.list_profiles()
+    ]
+
+
+@app.get("/transactions", response_model=list[TransactionView])
+def list_transactions(
+    user_id: Optional[str] = None,
+    flagged_only: bool = False,
+    limit: int = Query(100, ge=1, le=1000),
+    repo: TransactionRepository = Depends(get_repository),
+) -> list[TransactionView]:
+    """Transactions newest first, optionally narrowed to one customer or to those
+    flagged for review."""
+    if user_id is not None and repo.get_profile(user_id) is None:
+        raise HTTPException(status_code=404, detail=f"No customer profile for '{user_id}'")
+
+    views = []
+    for txn in repo.list_transactions(user_id=user_id, flagged_only=flagged_only, limit=limit):
+        assessment = repo.get_assessment(txn.transaction_id)
+        if assessment is None:
+            continue
+        views.append(TransactionView.of(txn, assessment, repo.review_threshold))
+    return views
+
+
+@app.get("/transactions/{transaction_id}", response_model=TransactionDetail)
+def get_transaction(
+    transaction_id: str,
+    repo: TransactionRepository = Depends(get_repository),
+) -> TransactionDetail:
+    txn = repo.get_transaction(transaction_id)
+    assessment = repo.get_assessment(transaction_id) if txn is not None else None
+    if txn is None or assessment is None:
+        raise HTTPException(status_code=404, detail=f"No transaction '{transaction_id}'")
+
+    base = TransactionView.of(txn, assessment, repo.review_threshold)
+    return TransactionDetail(
+        **base.model_dump(),
+        indicators=[IndicatorView.of(f) for f in assessment.flags],
+    )
+
+
+@app.get("/stats", response_model=Stats)
+def stats(repo: TransactionRepository = Depends(get_repository)) -> Stats:
+    transactions = repo.list_transactions(limit=None)
+
+    risk_levels = {level: 0 for level in RiskLevel}
+    category_counts: dict[Category, int] = {}
+    category_amounts: dict[Category, float] = {}
+    indicator_counts: dict[str, int] = {}
+    flagged = 0
+
+    for txn in transactions:
+        assessment = repo.get_assessment(txn.transaction_id)
+        if assessment is None:
+            continue
+        risk_levels[assessment.risk_level] += 1
+        if assessment.risk_score >= repo.review_threshold:
+            flagged += 1
+        category_counts[txn.category] = category_counts.get(txn.category, 0) + 1
+        category_amounts[txn.category] = category_amounts.get(txn.category, 0.0) + txn.amount
+        for flag in assessment.flags:
+            indicator_counts[flag.rule] = indicator_counts.get(flag.rule, 0) + 1
+
+    total = len(transactions)
+    by_category = sorted(
+        (
+            CategoryStat(
+                category=category_label(category),
+                count=count,
+                total_amount=category_amounts[category],
+            )
+            for category, count in category_counts.items()
+        ),
+        key=lambda s: (-s.total_amount, s.category),
+    )
+    indicators = sorted(
+        (
+            IndicatorStat(indicator=indicator_label(rule), count=count)
+            for rule, count in indicator_counts.items()
+        ),
+        key=lambda s: (-s.count, s.indicator),
+    )
+    return Stats(
+        total_transactions=total,
+        total_customers=len(repo.list_profiles()),
+        flagged_for_review=flagged,
+        flagged_rate=flagged / total if total else 0.0,
+        risk_levels=risk_levels,
+        by_category=by_category,
+        indicators_triggered=indicators,
+    )

@@ -34,7 +34,9 @@ def _money(amount: float) -> str:
     return f"${amount:,.2f}"
 
 
-def _category_label(category: Category) -> str:
+def category_label(category: Category) -> str:
+    """Human label for a category. Category values are snake_case and are never
+    shown to users."""
     return category.value.replace("_", " ").capitalize()
 
 
@@ -142,13 +144,13 @@ def rule_category_mismatch(
     if txn.category in profile.typical_categories:
         return None
     high_risk = txn.category in HIGH_RISK_CATEGORIES
-    usual = ", ".join(_category_label(c) for c in profile.typical_categories)
+    usual = ", ".join(category_label(c) for c in profile.typical_categories)
     detail = (
-        f"The category {_category_label(txn.category)} is not among this customer's usual categories "
+        f"The category {category_label(txn.category)} is not among this customer's usual categories "
         f"({usual})."
     )
     if high_risk:
-        detail += f" {_category_label(txn.category)} is a high-risk category."
+        detail += f" {category_label(txn.category)} is a high-risk category."
     return _flag(
         "category_mismatch",
         cfg,
