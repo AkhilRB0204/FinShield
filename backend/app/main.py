@@ -22,10 +22,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
-from .detection import assess, category_label
+from .detection import assess, category_label, compound_multiplier
 from .explainer import explain, indicator_label
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
+from .rules import MAX_SCORE
 
 load_dotenv()
 
@@ -42,8 +43,9 @@ app.add_middleware(
     allow_origins=_origins,
     # Credentials cannot be combined with a wildcard origin.
     allow_credentials="*" not in _origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # The client only reads and posts JSON.
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 
@@ -80,12 +82,44 @@ class IndicatorView(BaseModel):
         )
 
 
+class ScoreBreakdown(BaseModel):
+    """How the indicator points become the score, so the client can draw the
+    decomposition without recomputing anything. Uses the same compound and cap
+    rules as ``detection.assess``."""
+
+    indicator_points: float
+    compound_multiplier: float
+    # Points added by the compound multiplier; 0 when fewer than the minimum fire.
+    compound_bonus: float
+    # indicator_points * compound_multiplier, before the cap.
+    uncapped_score: float
+    capped: bool
+    max_score: float
+    review_threshold: float
+
+    @classmethod
+    def of(cls, assessment: RiskAssessment, review_threshold: float) -> "ScoreBreakdown":
+        points = sum(f.points for f in assessment.flags)
+        multiplier = compound_multiplier(len(assessment.flags))
+        uncapped = points * multiplier
+        return cls(
+            indicator_points=points,
+            compound_multiplier=multiplier,
+            compound_bonus=uncapped - points,
+            uncapped_score=uncapped,
+            capped=uncapped > MAX_SCORE,
+            max_score=MAX_SCORE,
+            review_threshold=review_threshold,
+        )
+
+
 class AssessmentView(BaseModel):
     transaction_id: str
     risk_score: float
     risk_level: RiskLevel
     flagged_for_review: bool
     indicators: list[IndicatorView]
+    breakdown: ScoreBreakdown
 
     @classmethod
     def of(cls, assessment: RiskAssessment, review_threshold: float) -> "AssessmentView":
@@ -95,6 +129,7 @@ class AssessmentView(BaseModel):
             risk_level=assessment.risk_level,
             flagged_for_review=assessment.risk_score >= review_threshold,
             indicators=[IndicatorView.of(f) for f in assessment.flags],
+            breakdown=ScoreBreakdown.of(assessment, review_threshold),
         )
 
 
@@ -135,6 +170,7 @@ class TransactionView(BaseModel):
 
 class TransactionDetail(TransactionView):
     indicators: list[IndicatorView]
+    breakdown: ScoreBreakdown
 
 
 class CustomerView(BaseModel):
@@ -279,6 +315,7 @@ def get_transaction(
     return TransactionDetail(
         **base.model_dump(),
         indicators=[IndicatorView.of(f) for f in assessment.flags],
+        breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
 
 
