@@ -1,0 +1,16 @@
+.band {
+  padding: var(--band-padding-block) var(--band-padding-inline);
+  border-bottom: var(--hairline);
+}
+
+.band > * {
+  margin: 0;
+}
+
+.band > * + * {
+  margin-top: var(--space-4);
+}
+
+.band p {
+  max-width: var(--measure);
+}

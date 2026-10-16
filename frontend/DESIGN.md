@@ -58,11 +58,14 @@ Two families, split by purpose: **serif for language, sans for data.**
 
 ### Fonts
 
-Both families are self-hosted from npm, never loaded from Google Fonts or another CDN. That way
-the app makes no third-party requests that would expose analysts' IP addresses, and the content
-security policy can keep `font-src 'self'`. Install `@fontsource-variable/newsreader` and
-`@fontsource-variable/archivo` and import both in the app entry point before `tokens.css`. The
-family tokens name the variable families first and fall back to system fonts.
+Both families load from Google Fonts through `<link>` tags in `index.html`, with `preconnect`
+hints and `display=swap`. `tokens.css` does not import them; it is imported once, in
+`main.jsx`. The content security policy in `vercel.json` allows exactly those two hosts
+(`fonts.googleapis.com` for styles, `fonts.gstatic.com` for font files).
+
+This sends each visitor's IP address to Google. If that becomes unacceptable, self-host the
+same families (for example from `@fontsource/newsreader` and `@fontsource/archivo`), drop the
+links, and narrow the CSP to `'self'`.
 
 **Tabular figures everywhere.** `font-variant-numeric: tabular-nums` is set on `html`, so
 amounts, scores and timestamps line up in columns and do not shift width as they change.

@@ -1,0 +1,22 @@
+# Render Blueprint for the FinShield API. Create it from the dashboard:
+# New > Blueprint > this repository.
+services:
+  - type: web
+    name: finshield-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      # Leave unset on the first deploy (the API then allows any origin). Once the
+      # Vercel URL is stable, set it to that exact origin, e.g.
+      # https://finshield.vercel.app, and redeploy.
+      - key: ALLOWED_ORIGINS
+        sync: false
+      # Optional. Without it, explanations use the deterministic fallback.
+      - key: ANTHROPIC_API_KEY
+        sync: false

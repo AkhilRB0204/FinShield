@@ -5,9 +5,8 @@
  * severity. Low risk has no color, so there is deliberately no --risk-low.
  */
 
-/* Fonts are self-hosted, not loaded from a third-party CDN, so the app makes
- * no requests outside its own origin and its CSP can keep font-src 'self'. The
- * app entry point imports them; see "Fonts" in DESIGN.md. */
+/* Fonts load from Google Fonts via <link> tags in index.html, not from here;
+ * see "Fonts" in DESIGN.md. */
 
 :root {
   /* --- Color: interface (cool, neutral) ------------------------------------ */
@@ -24,9 +23,9 @@
 
   /* --- Type ---------------------------------------------------------------- */
   /* Serif for language: score numeral, headings, generated explanation. */
-  --font-serif: "Newsreader Variable", "Newsreader", "Iowan Old Style", Georgia, serif;
+  --font-serif: "Newsreader", "Iowan Old Style", Georgia, serif;
   /* Sans for data: tables, labels, controls, chart axes. */
-  --font-sans: "Archivo Variable", "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --font-sans: "Archivo", "Helvetica Neue", Arial, sans-serif;
 
   --text-xs: 0.75rem; /* 12px: axis ticks */
   --text-sm: 0.8125rem; /* 13px: labels, table cells */

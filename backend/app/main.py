@@ -41,8 +41,8 @@ _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
-    # Credentials cannot be combined with a wildcard origin.
-    allow_credentials="*" not in _origins,
+    # The API uses no cookies or auth headers, so cross-origin credentials are never needed.
+    allow_credentials=False,
     # The client only reads and posts JSON.
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
