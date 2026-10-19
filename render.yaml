@@ -12,11 +12,10 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
-      # Leave unset on the first deploy (the API then allows any origin). Once the
-      # Vercel URL is stable, set it to that exact origin, e.g.
-      # https://finshield.vercel.app, and redeploy.
+      # The Vercel production origin, exactly: scheme and host, no trailing slash.
+      # Comma-separate to add more. Unset, the API allows any origin.
       - key: ALLOWED_ORIGINS
-        sync: false
+        value: https://finshield-mu.vercel.app
       # Optional. Without it, explanations use the deterministic fallback.
       - key: ANTHROPIC_API_KEY
         sync: false
