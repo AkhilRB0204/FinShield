@@ -76,12 +76,20 @@ _LEVEL_ACTIONS: dict[RiskLevel, str] = {
 }
 
 
+# no_indicators: nothing fired, so the model is not asked. no_api_key: no key is
+# configured. model_unavailable: the SDK is missing, the call failed, or the reply
+# did not parse.
+FallbackReason = Literal["no_indicators", "no_api_key", "model_unavailable"]
+
+
 class Explanation(BaseModel):
     transaction_id: str
     explanation: str
     action: str
     # Whether the text came from the model or from the deterministic fallback.
     source: Literal["model", "fallback"]
+    # Why the fallback was used; ``None`` when ``source`` is "model".
+    fallback_reason: Optional[FallbackReason] = None
 
 
 def indicator_label(rule: str, rules: Registry = RULES) -> str:
@@ -154,7 +162,10 @@ def _parse(text: str) -> Optional[tuple[str, str]]:
 
 
 def _fallback(
-    txn: Transaction, assessment: RiskAssessment, rules: Registry = RULES
+    txn: Transaction,
+    assessment: RiskAssessment,
+    rules: Registry = RULES,
+    reason: FallbackReason = "model_unavailable",
 ) -> Explanation:
     """Deterministic explanation assembled from the flag details.
 
@@ -174,6 +185,7 @@ def _fallback(
             explanation=f"{opening} None of the detection indicators were triggered.",
             action=_LEVEL_ACTIONS[assessment.risk_level],
             source="fallback",
+            fallback_reason=reason,
         )
 
     labels = ", ".join(indicator_label(flag.rule, rules) for flag in assessment.flags)
@@ -185,6 +197,7 @@ def _fallback(
         explanation=f"{opening} {count} {noun} triggered ({labels}). {details}",
         action=_LEVEL_ACTIONS[assessment.risk_level],
         source="fallback",
+        fallback_reason=reason,
     )
 
 
@@ -199,11 +212,13 @@ def explain(
     # With no indicators there is nothing for the model to explain, and asking it
     # to anyway invites it to invent one.
     if not assessment.flags:
-        return _fallback(txn, assessment, rules)
+        return _fallback(txn, assessment, rules, "no_indicators")
 
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return _fallback(txn, assessment, rules, "no_api_key")
     client = _client()
     if client is None:
-        return _fallback(txn, assessment, rules)
+        return _fallback(txn, assessment, rules, "model_unavailable")
 
     try:
         response = client.messages.create(

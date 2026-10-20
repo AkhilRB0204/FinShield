@@ -1,0 +1,204 @@
+/* --- Header band ------------------------------------------------------------ */
+
+.txn-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-4) var(--space-7);
+}
+
+.txn-score > * {
+  margin: 0;
+}
+
+.txn-score-label,
+.txn-fields dt {
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.txn-score-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+}
+
+.txn-score-line > p {
+  margin: 0;
+}
+
+/* Ink, not the level color: --risk-high and --risk-medium are never text. The
+   swatch beside the level name carries the color. */
+.txn-score-value {
+  font-family: var(--font-serif);
+  font-size: var(--text-score);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+}
+
+.txn-level {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  font-weight: var(--weight-semibold);
+}
+
+.txn-level-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  align-self: center;
+}
+
+.txn-review {
+  flex-basis: 100%;
+  font-weight: var(--weight-regular);
+  font-size: var(--text-sm);
+}
+
+/* Each value is its own labelled field; the row wraps on narrow screens. */
+.txn-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin: 0;
+  padding-bottom: var(--space-1);
+}
+
+.txn-fields dd {
+  margin: 0;
+}
+
+/* --- Columns ---------------------------------------------------------------- */
+
+.txn-columns {
+  display: grid;
+  gap: var(--space-7);
+}
+
+.txn-columns > section > * {
+  margin: 0;
+}
+
+.txn-columns > section > * + * {
+  margin-top: var(--space-4);
+}
+
+@media (min-width: 960px) {
+  .txn-columns {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    grid-template-areas: "indicators explanation";
+  }
+
+  .txn-indicators {
+    grid-area: indicators;
+  }
+
+  .txn-explanation {
+    grid-area: explanation;
+  }
+}
+
+.txn-quiet {
+  color: var(--slate);
+}
+
+/* --- Indicators ------------------------------------------------------------- */
+
+.indicator-list {
+  list-style: none;
+  padding: 0;
+}
+
+/* The left edge is reserved so a highlight does not shift the text. */
+.indicator-row {
+  margin-left: calc(-1 * (var(--space-3) + 3px));
+  padding: var(--space-3) 0 var(--space-3) var(--space-3);
+  border-left: 3px solid transparent;
+}
+
+.indicator-row + .indicator-row {
+  border-top: var(--hairline);
+}
+
+.indicator-row[data-highlighted] {
+  border-left-color: var(--accent);
+}
+
+.indicator-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-4);
+  font-weight: var(--weight-semibold);
+}
+
+.indicator-points {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.indicator-detail {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.quiet-heading {
+  font-size: var(--text-base);
+  color: var(--slate);
+}
+
+.txn-columns > section > .quiet-heading {
+  margin-top: var(--space-6);
+}
+
+.not-triggered {
+  list-style: none;
+  padding: 0;
+  color: var(--slate);
+}
+
+.not-triggered li + li {
+  margin-top: var(--space-1);
+}
+
+/* --- Explanation ------------------------------------------------------------ */
+
+.explanation-prose {
+  max-width: var(--measure);
+  font-family: var(--font-serif);
+  font-size: var(--text-prose);
+  line-height: var(--leading-prose);
+}
+
+.action-band {
+  max-width: var(--measure);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent);
+}
+
+.action-band > p {
+  margin: 0;
+}
+
+.action-label {
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.action-text {
+  margin-top: var(--space-1);
+  font-weight: var(--weight-medium);
+}
+
+.explanation-source {
+  max-width: var(--measure);
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.explanation-skeleton {
+  display: grid;
+  gap: var(--space-3);
+}

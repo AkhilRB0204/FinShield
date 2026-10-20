@@ -1,0 +1,92 @@
+/* The score bar. See "The score bar" in DESIGN.md: it is the one loud element. */
+
+.score-bar-visual {
+  position: relative;
+  font-size: var(--text-xs);
+}
+
+/* The axis row and label area sit inside the track's hairline, so their
+   percentages line up with the segments'. */
+.score-bar-axis,
+.score-bar-labels {
+  position: relative;
+  margin-inline: var(--hairline-width);
+}
+
+.score-bar-axis {
+  height: calc(var(--text-xs) * var(--leading-data));
+  margin-bottom: var(--space-2);
+}
+
+.score-bar-threshold-label {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.score-bar-track {
+  position: relative;
+  height: var(--score-bar-height);
+  background: var(--score-bar-track);
+  border: var(--score-bar-track-border);
+}
+
+.score-bar-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--risk-fill);
+  background-clip: padding-box;
+}
+
+.score-bar-segment + .score-bar-segment {
+  border-left: var(--score-bar-gap) solid transparent;
+}
+
+/* Extends above and below the track. */
+.score-bar-threshold {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  bottom: calc(-1 * var(--space-2));
+  width: var(--hairline-width);
+  background: var(--score-bar-threshold-mark);
+}
+
+.score-bar-labels {
+  margin-top: var(--space-2);
+}
+
+.score-bar-label {
+  position: absolute;
+  white-space: nowrap;
+  line-height: var(--leading-data);
+}
+
+.score-bar-label-points {
+  font-weight: var(--weight-semibold);
+}
+
+/* Starts at the bottom of the track and runs down to its label. */
+.score-bar-leader {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  width: var(--hairline-width);
+  background: var(--slate);
+}
+
+.score-bar-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.score-bar-measure .score-bar-label {
+  position: static;
+  display: inline-block;
+}
+
+.score-bar-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--slate);
+}

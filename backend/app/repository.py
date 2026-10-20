@@ -25,6 +25,9 @@ class TransactionRepository(Protocol):
     # Scores at or above this are flagged for review. Carried on the repository so
     # a store configured with a different registry reports its own threshold.
     review_threshold: float
+    # The registry the assessments were scored with, so a reader can list every
+    # rule that was checked, not only those that fired.
+    rules: Mapping[str, RuleConfig]
 
     def list_profiles(self) -> list[UserProfile]: ...
 
@@ -59,6 +62,7 @@ class InMemoryRepository:
         self._profiles = list(profiles)
         self._profile_by_id = {p.user_id: p for p in self._profiles}
         self.review_threshold = review_threshold
+        self.rules = rules
 
         chronological = sorted(transactions, key=lambda t: (t.timestamp, t.transaction_id))
         self._transactions = chronological

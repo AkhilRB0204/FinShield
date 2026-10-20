@@ -109,8 +109,12 @@ export function listTransactions({ userId, flaggedOnly, limit, signal } = {}) {
   });
 }
 
-export function getTransaction(transactionId, { signal } = {}) {
-  return request(`/transactions/${encodeURIComponent(transactionId)}`, { signal });
+/** One transaction with its score breakdown. `explanation: false` skips the explanation. */
+export function getTransaction(transactionId, { explanation = true, signal } = {}) {
+  return request(`/transactions/${encodeURIComponent(transactionId)}`, {
+    query: { explanation },
+    signal,
+  });
 }
 
 export function getStats({ signal } = {}) {

@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from functools import lru_cache
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
 from .detection import assess, category_label, compound_multiplier
-from .explainer import explain, indicator_label
+from .explainer import Explanation, explain, indicator_label
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
 from .rules import MAX_SCORE
@@ -168,9 +168,24 @@ class TransactionView(BaseModel):
         )
 
 
+# Where an explanation came from: "model", or why the deterministic fallback was
+# used ("no_indicators", "no_api_key", "model_unavailable"). An enum like
+# ``risk_level``: the client maps it to display text through a fixed lookup.
+ExplanationSource = Literal["model", "no_indicators", "no_api_key", "model_unavailable"]
+
+
+def explanation_source(written: Explanation) -> ExplanationSource:
+    return "model" if written.source == "model" else written.fallback_reason or "model_unavailable"
+
+
 class TransactionDetail(TransactionView):
     indicators: list[IndicatorView]
+    # Labels of the rules that were checked and did not fire, in registry order.
+    indicators_not_triggered: list[str]
     breakdown: ScoreBreakdown
+    explanation: Optional[str] = None
+    action: Optional[str] = None
+    explanation_source: Optional[ExplanationSource] = None
 
 
 class CustomerView(BaseModel):
@@ -237,6 +252,7 @@ class AnalyzeResponse(BaseModel):
     assessment: AssessmentView
     explanation: Optional[str] = None
     action: Optional[str] = None
+    explanation_source: Optional[ExplanationSource] = None
 
 
 # --- Routes --------------------------------------------------------------------
@@ -269,7 +285,12 @@ def analyze(
         return AnalyzeResponse(assessment=view)
 
     written = explain(txn, assessment)
-    return AnalyzeResponse(assessment=view, explanation=written.explanation, action=written.action)
+    return AnalyzeResponse(
+        assessment=view,
+        explanation=written.explanation,
+        action=written.action,
+        explanation_source=explanation_source(written),
+    )
 
 
 @app.get("/users", response_model=list[CustomerView])
@@ -304,19 +325,33 @@ def list_transactions(
 @app.get("/transactions/{transaction_id}", response_model=TransactionDetail)
 def get_transaction(
     transaction_id: str,
+    explanation: bool = Query(True, description="Include a plain-English explanation."),
     repo: TransactionRepository = Depends(get_repository),
 ) -> TransactionDetail:
+    """One transaction with its full score decomposition. The explanation is
+    written after scoring and never affects it; pass ``explanation=false`` to skip
+    it and answer without waiting on the model."""
     txn = repo.get_transaction(transaction_id)
     assessment = repo.get_assessment(transaction_id) if txn is not None else None
     if txn is None or assessment is None:
         raise HTTPException(status_code=404, detail=f"No transaction '{transaction_id}'")
 
     base = TransactionView.of(txn, assessment, repo.review_threshold)
-    return TransactionDetail(
+    fired = {f.rule for f in assessment.flags}
+    detail = TransactionDetail(
         **base.model_dump(),
         indicators=[IndicatorView.of(f) for f in assessment.flags],
+        indicators_not_triggered=[
+            indicator_label(rule, repo.rules) for rule in repo.rules if rule not in fired
+        ],
         breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
+    if explanation:
+        written = explain(txn, assessment, repo.rules)
+        detail.explanation = written.explanation
+        detail.action = written.action
+        detail.explanation_source = explanation_source(written)
+    return detail
 
 
 @app.get("/stats", response_model=Stats)
