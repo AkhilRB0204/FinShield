@@ -1,0 +1,36 @@
+/* Sits inside the track's hairline, so its pixel offsets line up with the segments'. */
+.bar-labels {
+  position: relative;
+  margin: var(--space-2) var(--hairline-width) 0;
+  font-size: var(--text-xs);
+}
+
+.bar-label {
+  position: absolute;
+  white-space: nowrap;
+  line-height: var(--leading-data);
+}
+
+/* Starts at the bottom of the track and runs down to its label. */
+.bar-leader {
+  position: absolute;
+  top: calc(-1 * var(--space-2));
+  width: var(--hairline-width);
+  background: var(--slate);
+}
+
+.bar-labels-measure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  font-size: var(--text-xs);
+}
+
+.bar-labels-measure .bar-label {
+  position: static;
+  display: inline-block;
+}
+
+.bar-label-figure {
+  font-weight: var(--weight-semibold);
+}

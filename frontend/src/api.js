@@ -30,9 +30,11 @@ export class ApiError extends Error {
 }
 
 export class NetworkError extends ApiError {
-  constructor(detail, cause) {
+  /** `reason` is "unconfigured", "unreachable" or "unreadable". */
+  constructor(detail, reason, cause) {
     super(0, detail);
     this.name = "NetworkError";
+    this.reason = reason;
     this.cause = cause;
   }
 }
@@ -49,7 +51,7 @@ function detailToString(detail, fallback) {
 }
 
 async function request(path, { method = "GET", query, body, signal } = {}) {
-  if (!API_URL) throw new NetworkError("This build is not configured with an API address.");
+  if (!API_URL) throw new NetworkError("This build is not configured with an API address.", "unconfigured");
   const url = new URL(API_URL + path);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -67,14 +69,16 @@ async function request(path, { method = "GET", query, body, signal } = {}) {
     });
   } catch (err) {
     if (err?.name === "AbortError") throw err;
-    throw new NetworkError("The FinShield service could not be reached.", err);
+    throw new NetworkError("The FinShield service could not be reached.", "unreachable", err);
   }
 
   let payload = null;
   try {
     payload = await response.json();
   } catch (err) {
-    if (response.ok) throw new NetworkError("The FinShield service sent an unreadable response.", err);
+    if (response.ok) {
+      throw new NetworkError("The FinShield service sent an unreadable response.", "unreadable", err);
+    }
   }
 
   if (!response.ok) {
@@ -95,6 +99,11 @@ export function getHealth({ signal } = {}) {
 /** Score a transaction. `explanation: false` skips the plain-English explanation. */
 export function analyzeTransaction(transaction, { explanation = true, signal } = {}) {
   return request("/analyze", { method: "POST", body: transaction, query: { explanation }, signal });
+}
+
+/** Category and city choices for the analyze form. */
+export function getReference({ signal } = {}) {
+  return request("/reference", { signal });
 }
 
 export function listUsers({ signal } = {}) {

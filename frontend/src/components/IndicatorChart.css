@@ -1,0 +1,18 @@
+.indicator-chart {
+  max-width: 48rem;
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+
+/* Recharts does not pass className through to the grid, so target its own class. */
+.indicator-chart .recharts-cartesian-grid line {
+  stroke: var(--rule);
+}
+
+.indicator-chart-label {
+  fill: var(--ink);
+}
+
+.indicator-chart .recharts-yAxis .recharts-cartesian-axis-tick-value {
+  fill: var(--ink);
+}

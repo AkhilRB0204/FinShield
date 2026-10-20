@@ -1,0 +1,81 @@
+/*
+ * Shared controls. Radius is for controls only (--radius-control); borders are
+ * --slate because --rule is too faint to bound a control. No shadows, and no
+ * transitions: hover and focus changes are immediate.
+ */
+
+.button-primary,
+.button-secondary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-control);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.button-primary {
+  background: var(--accent);
+  color: var(--paper);
+  border: var(--hairline-width) solid var(--accent);
+}
+
+.button-primary:hover {
+  text-decoration: underline;
+}
+
+.button-primary:disabled {
+  cursor: default;
+  text-decoration: none;
+}
+
+.button-secondary {
+  background: var(--paper);
+  color: var(--accent);
+  border: var(--hairline-width) solid var(--accent);
+}
+
+.button-secondary:hover {
+  text-decoration: underline;
+}
+
+.control-input,
+.control-select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--space-3);
+  background: var(--paper);
+  color: var(--ink);
+  border: var(--control-border);
+}
+
+/* Date and time inputs move keyboard focus into their own month, day and time
+   segments, and the input itself then never matches :focus-visible. */
+.control-input[type="datetime-local"]:focus,
+.control-input[type="datetime-local"]:focus-within {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.control-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.control-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2.5rem;
+  cursor: pointer;
+}
+
+.control-check input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--accent);
+}

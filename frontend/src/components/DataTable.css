@@ -1,0 +1,28 @@
+/* Tables: square, hairline-divided, 40px rows, left-aligned throughout (numbers
+   too: tabular figures keep them aligned). */
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.data-table th,
+.data-table td {
+  height: 2.5rem;
+  padding: 0 var(--space-3);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: var(--hairline);
+}
+
+.data-table th {
+  font-weight: var(--weight-regular);
+  color: var(--slate);
+  background: var(--paper);
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  padding-left: 0;
+}

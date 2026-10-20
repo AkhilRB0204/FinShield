@@ -50,6 +50,20 @@ export function riskFill(level) {
   return RISK_FILLS[level] ?? RISK_FILLS.low;
 }
 
+/** A severity mark beside ordinary content: none at all for low risk. */
+export function riskMark(level) {
+  return level === "low" ? "transparent" : riskFill(level);
+}
+
+export function formatCount(count) {
+  return count.toLocaleString("en-US");
+}
+
+/** A 0–1 rate as a percentage to two decimals: 0.003376 → "0.34%". */
+export function formatRate(rate) {
+  return `${(rate * 100).toFixed(2)}%`;
+}
+
 const EXPLANATION_SOURCES = {
   model: "Written by Claude from the indicators listed. Claude explains the score; it did not set it.",
   no_api_key: "Assembled from the detector output, because no Anthropic API key is configured.",
