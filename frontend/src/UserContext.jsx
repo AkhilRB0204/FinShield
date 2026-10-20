@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useState } from "react";
 
 import { listUsers } from "./api.js";
+import { useApi } from "./useApi.js";
 
 const UserContext = createContext(null);
 
@@ -9,37 +10,21 @@ const UserContext = createContext(null);
  * first customer the API returns.
  */
 export function UserProvider({ children }) {
-  const [users, setUsers] = useState([]);
+  const result = useApi((signal) => listUsers({ signal }), []);
   const [selectedId, setSelectedId] = useState(null);
-  const [status, setStatus] = useState("loading"); // "loading" | "ready" | "error"
-  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    listUsers({ signal: controller.signal })
-      .then((data) => {
-        setUsers(data);
-        setSelectedId((current) => current ?? data[0]?.user_id ?? null);
-        setStatus("ready");
-      })
-      .catch((err) => {
-        if (err.name === "AbortError") return;
-        setError(err);
-        setStatus("error");
-      });
-    return () => controller.abort();
-  }, []);
-
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    const users = result.data ?? [];
+    const id = selectedId ?? users[0]?.user_id ?? null;
+    return {
       users,
-      status,
-      error,
-      selectedUser: users.find((u) => u.user_id === selectedId) ?? null,
+      status: result.status,
+      error: result.error ?? null,
+      retry: result.retry,
+      selectedUser: users.find((u) => u.user_id === id) ?? null,
       selectUser: setSelectedId,
-    }),
-    [users, status, error, selectedId],
-  );
+    };
+  }, [result, selectedId]);
 
   return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
 }

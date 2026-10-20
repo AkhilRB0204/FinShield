@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from functools import lru_cache
-from typing import Literal, Optional
+from typing import Literal, Mapping, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -24,9 +24,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .detection import assess, category_label, compound_multiplier
 from .explainer import Explanation, explain, indicator_label
+from .generator import CITIES
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
-from .rules import MAX_SCORE
+from .rules import MAX_SCORE, RuleConfig
 
 load_dotenv()
 
@@ -113,22 +114,32 @@ class ScoreBreakdown(BaseModel):
         )
 
 
+def not_triggered(assessment: RiskAssessment, rules: Mapping[str, RuleConfig]) -> list[str]:
+    """Labels of the rules that were checked and did not fire, in registry order."""
+    fired = {f.rule for f in assessment.flags}
+    return [indicator_label(rule, rules) for rule in rules if rule not in fired]
+
+
 class AssessmentView(BaseModel):
     transaction_id: str
     risk_score: float
     risk_level: RiskLevel
     flagged_for_review: bool
     indicators: list[IndicatorView]
+    indicators_not_triggered: list[str]
     breakdown: ScoreBreakdown
 
     @classmethod
-    def of(cls, assessment: RiskAssessment, review_threshold: float) -> "AssessmentView":
+    def of(
+        cls, assessment: RiskAssessment, review_threshold: float, rules: Mapping[str, RuleConfig]
+    ) -> "AssessmentView":
         return cls(
             transaction_id=assessment.transaction_id,
             risk_score=assessment.risk_score,
             risk_level=assessment.risk_level,
             flagged_for_review=assessment.risk_score >= review_threshold,
             indicators=[IndicatorView.of(f) for f in assessment.flags],
+            indicators_not_triggered=not_triggered(assessment, rules),
             breakdown=ScoreBreakdown.of(assessment, review_threshold),
         )
 
@@ -223,12 +234,31 @@ class IndicatorStat(BaseModel):
 
 class Stats(BaseModel):
     total_transactions: int
+    total_amount: float
     total_customers: int
     flagged_for_review: int
     flagged_rate: float
     risk_levels: dict[RiskLevel, int]
     by_category: list[CategoryStat]
     indicators_triggered: list[IndicatorStat]
+
+
+class CategoryOption(BaseModel):
+    # ``value`` is the snake_case enum value to submit; it is never displayed.
+    value: Category
+    label: str
+
+
+class CityOption(BaseModel):
+    city: str
+    state: str
+    latitude: float
+    longitude: float
+
+
+class Reference(BaseModel):
+    categories: list[CategoryOption]
+    cities: list[CityOption]
 
 
 class AnalyzeRequest(BaseModel):
@@ -280,16 +310,28 @@ def analyze(
 
     txn = Transaction(**request.model_dump())
     assessment = assess(txn, profile, repo.get_user_transactions(request.user_id))
-    view = AssessmentView.of(assessment, repo.review_threshold)
+    view = AssessmentView.of(assessment, repo.review_threshold, repo.rules)
     if not explanation:
         return AnalyzeResponse(assessment=view)
 
-    written = explain(txn, assessment)
+    written = explain(txn, assessment, repo.rules)
     return AnalyzeResponse(
         assessment=view,
         explanation=written.explanation,
         action=written.action,
         explanation_source=explanation_source(written),
+    )
+
+
+@app.get("/reference", response_model=Reference)
+def reference() -> Reference:
+    """Choices for the analyze form, so the client keeps no copy of either list."""
+    return Reference(
+        categories=[CategoryOption(value=c.value, label=category_label(c)) for c in Category],
+        cities=[
+            CityOption(city=city, state=state, latitude=lat, longitude=lon)
+            for city, state, lat, lon in CITIES
+        ],
     )
 
 
@@ -337,13 +379,10 @@ def get_transaction(
         raise HTTPException(status_code=404, detail=f"No transaction '{transaction_id}'")
 
     base = TransactionView.of(txn, assessment, repo.review_threshold)
-    fired = {f.rule for f in assessment.flags}
     detail = TransactionDetail(
         **base.model_dump(),
         indicators=[IndicatorView.of(f) for f in assessment.flags],
-        indicators_not_triggered=[
-            indicator_label(rule, repo.rules) for rule in repo.rules if rule not in fired
-        ],
+        indicators_not_triggered=not_triggered(assessment, repo.rules),
         breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
     if explanation:
@@ -397,6 +436,7 @@ def stats(repo: TransactionRepository = Depends(get_repository)) -> Stats:
     )
     return Stats(
         total_transactions=total,
+        total_amount=sum(category_amounts.values()),
         total_customers=len(repo.list_profiles()),
         flagged_for_review=flagged,
         flagged_rate=flagged / total if total else 0.0,

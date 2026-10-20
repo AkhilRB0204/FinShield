@@ -1,0 +1,10 @@
+.error-notice {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  max-width: var(--measure);
+}
+
+.error-notice > * {
+  margin: 0;
+}

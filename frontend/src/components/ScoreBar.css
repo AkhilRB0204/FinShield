@@ -5,17 +5,11 @@
   font-size: var(--text-xs);
 }
 
-/* The axis row and label area sit inside the track's hairline, so their
-   percentages line up with the segments'. */
-.score-bar-axis,
-.score-bar-labels {
-  position: relative;
-  margin-inline: var(--hairline-width);
-}
-
+/* Inside the track's hairline, so its percentages line up with the segments'. */
 .score-bar-axis {
+  position: relative;
   height: calc(var(--text-xs) * var(--leading-data));
-  margin-bottom: var(--space-2);
+  margin: 0 var(--hairline-width) var(--space-2);
 }
 
 .score-bar-threshold-label {
@@ -50,39 +44,6 @@
   bottom: calc(-1 * var(--space-2));
   width: var(--hairline-width);
   background: var(--score-bar-threshold-mark);
-}
-
-.score-bar-labels {
-  margin-top: var(--space-2);
-}
-
-.score-bar-label {
-  position: absolute;
-  white-space: nowrap;
-  line-height: var(--leading-data);
-}
-
-.score-bar-label-points {
-  font-weight: var(--weight-semibold);
-}
-
-/* Starts at the bottom of the track and runs down to its label. */
-.score-bar-leader {
-  position: absolute;
-  top: calc(-1 * var(--space-2));
-  width: var(--hairline-width);
-  background: var(--slate);
-}
-
-.score-bar-measure {
-  position: absolute;
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.score-bar-measure .score-bar-label {
-  position: static;
-  display: inline-block;
 }
 
 .score-bar-note {

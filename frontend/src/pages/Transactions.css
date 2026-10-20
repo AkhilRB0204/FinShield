@@ -1,0 +1,180 @@
+/* --- Filters ---------------------------------------------------------------- */
+
+.table-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-6);
+}
+
+.table-filter-limit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.table-filter-limit .control-select {
+  width: auto;
+}
+
+.table-count {
+  min-height: calc(var(--text-sm) * var(--leading-data));
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.empty-state {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+
+.empty-state > p {
+  margin: 0;
+}
+
+/* --- Table ------------------------------------------------------------------ */
+
+/* Sticky against the page scroll; the table has no scrolling ancestor. */
+.txn-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: var(--hairline);
+}
+
+/* The row is the positioning context for the stretched link. */
+.txn-row {
+  position: relative;
+}
+
+/* A 3px severity mark at the row's left edge. Low risk has none. */
+.txn-row td:first-child {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--row-mark, transparent);
+}
+
+.txn-table thead th:first-child {
+  padding-left: calc(var(--space-3) + 3px);
+}
+
+.txn-row:hover {
+  cursor: pointer;
+}
+
+.txn-row:hover .row-link {
+  text-decoration: underline;
+}
+
+.row-link {
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+/* The ring goes around the whole row rather than the link text. */
+.row-link:focus-visible {
+  outline: none;
+}
+
+.txn-row:has(.row-link:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.col-merchant {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.txn-list {
+  container-type: inline-size;
+}
+
+/* Customer and location are the first to go as the table narrows. */
+@container (max-width: 960px) {
+  .txn-table .col-customer,
+  .txn-table .col-location {
+    display: none;
+  }
+}
+
+/* --- Two-line rows when the table is under 720px wide ----------------------- */
+
+@container (max-width: 720px) {
+  .txn-table,
+  .txn-table tbody {
+    display: block;
+  }
+
+  .txn-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  /* Fixed column widths, so amounts and scores line up from row to row. */
+  .txn-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 6rem 4.5rem;
+    grid-template-areas:
+      "merchant amount score"
+      "time category level";
+    column-gap: var(--space-2);
+    row-gap: var(--space-1);
+    padding: var(--space-2) 0 var(--space-2) var(--space-3);
+    border-bottom: var(--hairline);
+    border-left: 3px solid var(--row-mark, transparent);
+  }
+
+  .txn-table .txn-row td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* As specific as the rule above, and after it, so these stay hidden. */
+  .txn-table .txn-row td.col-customer,
+  .txn-table .txn-row td.col-location {
+    display: none;
+  }
+
+  .txn-row .col-merchant {
+    grid-area: merchant;
+    max-width: none;
+  }
+
+  .txn-row .col-amount {
+    grid-area: amount;
+  }
+
+  .txn-row .col-score {
+    grid-area: score;
+  }
+
+  .txn-row .col-time {
+    grid-area: time;
+    color: var(--slate);
+  }
+
+  .txn-row .col-category {
+    grid-area: category;
+    color: var(--slate);
+  }
+
+  .txn-row .col-level {
+    grid-area: level;
+  }
+}

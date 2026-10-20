@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router";
 
+import ErrorNotice from "./components/ErrorNotice.jsx";
 import Skeleton from "./components/Skeleton.jsx";
 import { customerLabel, formatMoney } from "./format.js";
 import { useUser } from "./UserContext.jsx";
@@ -40,12 +41,20 @@ export default function AppShell() {
 }
 
 function CustomerProfile() {
-  const { users, status, error, selectedUser, selectUser } = useUser();
+  const { users, status, error, retry, selectedUser, selectUser } = useUser();
 
   if (status === "error") {
     return (
+      <section className="rail-profile rail-error" aria-label="Demo customer">
+        <ErrorNotice error={error} subject="Customers" onRetry={retry} />
+      </section>
+    );
+  }
+
+  if (status === "ready" && users.length === 0) {
+    return (
       <section className="rail-profile" aria-label="Demo customer">
-        <p className="rail-error">Customers could not be loaded. {error.detail}</p>
+        <p className="rail-error">No demo customers are available, so transactions cannot be analyzed.</p>
       </section>
     );
   }

@@ -84,6 +84,14 @@
   --score-bar-easing: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* Narrow screens keep a 16px gutter so tables and the score bar have room. */
+@media (max-width: 720px) {
+  :root {
+    --band-padding-block: var(--space-5);
+    --band-padding-inline: var(--space-4);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --score-bar-duration: 0ms;

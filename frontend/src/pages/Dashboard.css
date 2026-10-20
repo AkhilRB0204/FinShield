@@ -1,0 +1,82 @@
+/* --- Stat band -------------------------------------------------------------- */
+
+/* Hairlines between figures however they wrap: every figure has a left and top
+   rule, and the band's overflow clips the ones on the outer edges. The band
+   starts one figure-padding to the left, so the figures that begin a row line up
+   with the page's left edge whichever figure that is. */
+.stat-band {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 0 0 calc(-1 * var(--space-5));
+  overflow: hidden;
+}
+
+.stat {
+  flex: 1 1 10rem;
+  margin: -1px 0 0 -1px;
+  padding: var(--space-3) var(--space-5);
+  border-left: var(--hairline);
+  border-top: var(--hairline);
+}
+
+.stat dt {
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.stat dd {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-serif);
+  font-size: var(--text-h1);
+  line-height: var(--leading-tight);
+}
+
+/* --- Risk distribution ------------------------------------------------------ */
+
+.distribution-visual {
+  position: relative;
+}
+
+/* Segments are flex items: one floored at its min-width pushes the next along
+   instead of being drawn over. */
+.distribution-track {
+  display: flex;
+  height: var(--score-bar-height);
+  background: var(--score-bar-track);
+  border: var(--score-bar-track-border);
+}
+
+.distribution-segment {
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 6px;
+  background-clip: padding-box;
+}
+
+.distribution-segment + .distribution-segment {
+  border-left: var(--score-bar-gap) solid transparent;
+}
+
+.distribution-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+/* --- Indicator chart (styles in IndicatorChart.css) ------------------------- */
+
+.chart-skeleton {
+  display: grid;
+  gap: var(--space-2);
+  max-width: 48rem;
+}
+
+/* --- Spend table ------------------------------------------------------------ */
+
+.spend-table {
+  max-width: 36rem;
+}
+
+.txn-quiet {
+  color: var(--slate);
+}
