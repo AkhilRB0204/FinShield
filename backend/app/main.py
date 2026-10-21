@@ -22,6 +22,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
+from .ask import AskUnavailable
+from .ask import answer as answer_question
 from .detection import assess, category_label, compound_multiplier
 from .explainer import Explanation, explain, indicator_label
 from .generator import CITIES
@@ -286,6 +288,35 @@ class AnalyzeRequest(BaseModel):
     transaction_id: str = "unassigned"
 
 
+class AskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=500)
+
+
+class ToolArgumentView(BaseModel):
+    name: str
+    value: str
+
+
+class ToolCallView(BaseModel):
+    """One lookup the answer was built from, labelled for display."""
+
+    tool: str
+    arguments: list[ToolArgumentView]
+
+
+class AskResponse(BaseModel):
+    # Model output with citations removed; render as text only.
+    answer: str
+    # Ids of the transactions the answer cites, in order of first citation. Each
+    # appeared in a tool result for this question.
+    transaction_ids: list[str]
+    # The same transactions, for linking.
+    transactions: list[TransactionView]
+    checked: list[ToolCallView]
+
+
 class AnalyzeResponse(BaseModel):
     assessment: AssessmentView
     explanation: Optional[str] = None
@@ -408,6 +439,46 @@ def get_transaction(
         detail.action = written.action
         detail.explanation_source = explanation_source(written)
     return detail
+
+
+_ASK_UNAVAILABLE = {
+    "no_api_key": "Questions need the Anthropic API, and no API key is configured.",
+    "model_unavailable": "The question could not be answered because Claude could not be reached.",
+}
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask(request: AskRequest, repo: TransactionRepository = Depends(get_repository)) -> AskResponse:
+    """Answer a question about the dataset from lookups only.
+
+    The model reads transactions, assessments, aggregates and the rule registry
+    through read-only tools and reports what they return. It never scores
+    anything. ``checked`` lists every lookup it made.
+    """
+    try:
+        result = answer_question(request.question, repo)
+    except AskUnavailable as err:
+        reason = str(err)
+        raise HTTPException(status_code=503, detail=_ASK_UNAVAILABLE.get(reason, _ASK_UNAVAILABLE["model_unavailable"]))
+
+    transactions = []
+    for transaction_id in result.transaction_ids:
+        txn = repo.get_transaction(transaction_id)
+        assessment = repo.get_assessment(transaction_id)
+        if txn is not None and assessment is not None:
+            transactions.append(TransactionView.of(txn, assessment, repo.review_threshold))
+    return AskResponse(
+        answer=result.text,
+        transaction_ids=[t.transaction_id for t in transactions],
+        transactions=transactions,
+        checked=[
+            ToolCallView(
+                tool=call.tool,
+                arguments=[ToolArgumentView(name=name, value=value) for name, value in call.arguments],
+            )
+            for call in result.calls
+        ],
+    )
 
 
 @app.get("/stats", response_model=Stats)

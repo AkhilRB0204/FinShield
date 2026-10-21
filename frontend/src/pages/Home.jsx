@@ -2,9 +2,9 @@ import { Link } from "react-router";
 
 import { listTransactions } from "../api.js";
 import Band from "../components/Band.jsx";
+import CaseStrip, { CaseStripSkeleton } from "../components/CaseStrip.jsx";
 import ErrorNotice from "../components/ErrorNotice.jsx";
 import Skeleton from "../components/Skeleton.jsx";
-import { formatMoney, formatPoints, riskLevelLabel, riskMark } from "../format.js";
 import { useApi } from "../useApi.js";
 import { DetailSkeleton, TransactionAssessment } from "./TransactionDetail.jsx";
 import "./Home.css";
@@ -112,41 +112,13 @@ function TryBand() {
   );
 }
 
-/**
- * Each merchant link stretches over its whole case, so a case is one tab stop
- * and one click target. The path is built from the transaction id, encoded.
- */
 function Cases({ cases }) {
   return (
     <Band aria-labelledby="cases-heading">
       <h2 id="cases-heading" className="quiet-heading">
         More flagged transactions
       </h2>
-      <ul className="case-strip">
-        {cases.map((txn) => (
-          <li key={txn.transaction_id} className="case" style={{ "--row-mark": riskMark(txn.risk_level) }}>
-            <Link className="case-link" to={`/txn/${encodeURIComponent(txn.transaction_id)}`}>
-              {txn.merchant}
-            </Link>
-            <dl className="case-fields">
-              <div>
-                <dt>Amount</dt>
-                <dd>{formatMoney(txn.amount)}</dd>
-              </div>
-              <div>
-                <dt>Risk score</dt>
-                <dd>
-                  {formatPoints(txn.risk_score)} <span className="case-level">{riskLevelLabel(txn.risk_level)}</span>
-                </dd>
-              </div>
-              <div className="case-top">
-                <dt>Top indicator</dt>
-                <dd>{txn.top_indicator ?? "None"}</dd>
-              </div>
-            </dl>
-          </li>
-        ))}
-      </ul>
+      <CaseStrip cases={cases} />
     </Band>
   );
 }
@@ -155,15 +127,7 @@ function CasesSkeleton() {
   return (
     <Band aria-hidden="true">
       <Skeleton width="11rem" />
-      <ul className="case-strip">
-        {Array.from({ length: MORE_CASES }, (_, i) => (
-          <li key={i} className="case">
-            <Skeleton width="8rem" />
-            <Skeleton width="70%" />
-            <Skeleton width="50%" />
-          </li>
-        ))}
-      </ul>
+      <CaseStripSkeleton count={MORE_CASES} />
     </Band>
   );
 }

@@ -20,6 +20,8 @@ class RuleConfig:
     # Human-readable name for display. Rule keys are snake_case and must never be shown to users.
     label: str
     params: dict[str, Any] = field(default_factory=dict)
+    # What the rule looks for, in one plain sentence. Read by the query interface.
+    description: str = ""
 
 
 # --- Scoring -------------------------------------------------------------------
@@ -52,6 +54,9 @@ RULES: dict[str, RuleConfig] = {
     "amount_anomaly": RuleConfig(
         weight=30.0,
         label="Amount anomaly",
+        description=(
+            "An amount far above this customer's usual spending, measured in standard deviations from their average."
+        ),
         params={
             "z_threshold": 3.0,
             # severity = min(1.0, (z - z_threshold) / severity_ramp + base_severity)
@@ -62,6 +67,9 @@ RULES: dict[str, RuleConfig] = {
     "micro_amount": RuleConfig(
         weight=22.0,
         label="Micro amount",
+        description=(
+            "A very small amount that is also well below this customer's average, a pattern consistent with card testing."
+        ),
         params={
             # Both conditions are required; either alone produces false positives.
             "ceiling": MICRO_AMOUNT_CEILING,
@@ -72,6 +80,9 @@ RULES: dict[str, RuleConfig] = {
     "velocity": RuleConfig(
         weight=25.0,
         label="Velocity",
+        description=(
+            "Several transactions from the same customer within a short window of time."
+        ),
         params={
             "window_minutes": VELOCITY_WINDOW_MINUTES,
             "threshold": VELOCITY_THRESHOLD,
@@ -83,6 +94,9 @@ RULES: dict[str, RuleConfig] = {
     "unusual_hour": RuleConfig(
         weight=18.0,
         label="Unusual hour",
+        description=(
+            "A transaction outside the customer's usual hours of activity, with added severity late at night."
+        ),
         params={
             "base_severity": 0.5,
             # Hours late_night_start..late_night_end inclusive (00:00-05:59) get the higher severity.
@@ -94,6 +108,9 @@ RULES: dict[str, RuleConfig] = {
     "category_mismatch": RuleConfig(
         weight=20.0,
         label="Category mismatch",
+        description=(
+            "A purchase category the customer does not usually buy in, with added severity for high-risk categories."
+        ),
         params={
             "high_risk_severity": 0.85,
             "standard_severity": 0.4,
@@ -102,6 +119,9 @@ RULES: dict[str, RuleConfig] = {
     "geographic_anomaly": RuleConfig(
         weight=35.0,
         label="Geographic anomaly",
+        description=(
+            "A transaction far from the customer's home, or too far from their previous transaction to have travelled between them."
+        ),
         params={
             "min_distance_miles": 100.0,
             # severity = min(distance_severity_cap,
@@ -117,6 +137,9 @@ RULES: dict[str, RuleConfig] = {
     "round_amount": RuleConfig(
         weight=10.0,
         label="Round amount",
+        description=(
+            "An amount that is an exact multiple of a round figure, such as 50, 100 or 500 dollars."
+        ),
         params={
             "min_amount": 50.0,
             # [multiple, severity], checked in order; the first exact multiple wins.

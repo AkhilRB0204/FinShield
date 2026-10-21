@@ -74,7 +74,12 @@ function track(token, active) {
 // Longer than a Render wake-up, so only a server that is down or hung times out.
 const TIMEOUT_MS = 75_000;
 
-async function request(path, options = {}) {
+/**
+ * `untracked` leaves a request out of the in-flight count: one that is slow
+ * because of the work it asks for, not because the server is waking.
+ */
+async function request(path, { untracked = false, ...options } = {}) {
+  if (untracked) return send(path, options);
   const token = {};
   track(token, true);
   try {
@@ -84,7 +89,7 @@ async function request(path, options = {}) {
   }
 }
 
-async function send(path, { method = "GET", query, body, signal } = {}) {
+async function send(path, { method = "GET", query, body, signal, timeoutMs = TIMEOUT_MS } = {}) {
   if (!API_URL) throw new NetworkError("This build is not configured with an API address.", "unconfigured");
   const url = new URL(API_URL + path);
   if (query) {
@@ -99,7 +104,7 @@ async function send(path, { method = "GET", query, body, signal } = {}) {
   const timer = setTimeout(() => {
     timedOut = true;
     controller.abort();
-  }, TIMEOUT_MS);
+  }, timeoutMs);
   const forwardAbort = () => controller.abort();
   if (signal?.aborted) controller.abort();
   signal?.addEventListener("abort", forwardAbort);
@@ -188,4 +193,18 @@ export function getTransaction(transactionId, { explanation = true, signal } = {
 
 export function getStats({ signal } = {}) {
   return request("/stats", { signal });
+}
+
+// A question can take several model turns, each with lookups.
+const ASK_TIMEOUT_MS = 150_000;
+
+/** Answer a question about the dataset from lookups only. */
+export function askQuestion(question, { signal } = {}) {
+  return request("/ask", {
+    method: "POST",
+    body: { question },
+    signal,
+    timeoutMs: ASK_TIMEOUT_MS,
+    untracked: true,
+  });
 }
