@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { getTransaction } from "../api.js";
@@ -13,6 +13,16 @@ import "./TransactionDetail.css";
 
 export default function TransactionDetail() {
   const { id } = useParams();
+  return <TransactionAssessment id={id} />;
+}
+
+/**
+ * One transaction's full assessment: score, bar, indicators and explanation.
+ * Also the hero of the home page, where it sits under the page's own h1, so
+ * `headingLevel` sets its title's level and the columns' headings follow.
+ * `caption` is a line shown above the score.
+ */
+export function TransactionAssessment({ id, headingLevel = 1, caption }) {
   // Two requests: without the explanation, so the score and its bar render
   // without waiting on the model, and with it. Scoring is deterministic, so both
   // carry the same assessment.
@@ -20,21 +30,24 @@ export default function TransactionDetail() {
   const explained = useApi((signal) => getTransaction(id, { signal }), [id]);
 
   const txn = scored.data ?? explained.data;
-  if (txn) return <Detail txn={txn} explained={explained} />;
-  if (scored.status === "error") return <DetailError error={scored.error} onRetry={scored.retry} />;
+  if (txn) return <Detail txn={txn} explained={explained} headingLevel={headingLevel} caption={caption} />;
+  if (scored.status === "error") return <DetailError error={scored.error} onRetry={scored.retry} headingLevel={headingLevel} />;
   return <DetailSkeleton />;
 }
 
-function Detail({ txn, explained }) {
+function Detail({ txn, explained, headingLevel, caption }) {
   const [highlighted, setHighlighted] = useState(null);
   const segments = useMemo(() => scoreSegments(txn.indicators, txn.breakdown), [txn]);
+  const titleId = useId();
+  const Title = `h${headingLevel}`;
 
   return (
     <>
-      <Band aria-labelledby="txn-title">
-        <h1 id="txn-title" className="visually-hidden">
+      <Band aria-labelledby={titleId}>
+        <Title id={titleId} className="visually-hidden">
           Transaction at {txn.merchant}
-        </h1>
+        </Title>
+        {caption && <p className="txn-caption">{caption}</p>}
         <div className="txn-summary">
           <ScoreHeadline score={txn.risk_score} level={txn.risk_level} flagged={txn.flagged_for_review} />
           <dl className="txn-fields">
@@ -58,6 +71,7 @@ function Detail({ txn, explained }) {
           notTriggered={txn.indicators_not_triggered}
           highlighted={highlighted}
           explanation={explained}
+          headingLevel={headingLevel + 1}
         />
       </Band>
     </>
@@ -73,7 +87,7 @@ function Field({ label, children }) {
   );
 }
 
-function DetailSkeleton() {
+export function DetailSkeleton() {
   return (
     <>
       <Band aria-busy="true" aria-label="Loading transaction">
@@ -97,11 +111,12 @@ function DetailSkeleton() {
   );
 }
 
-function DetailError({ error, onRetry }) {
+function DetailError({ error, onRetry, headingLevel }) {
+  const Title = `h${headingLevel}`;
   if (error.status === 404) {
     return (
       <Band>
-        <h1>Transaction not found</h1>
+        <Title>Transaction not found</Title>
         <p>
           There is no transaction at this address. <Link to="/transactions">Go to transactions</Link>
         </p>
@@ -110,7 +125,7 @@ function DetailError({ error, onRetry }) {
   }
   return (
     <Band>
-      <h1>Transaction unavailable</h1>
+      <Title>Transaction unavailable</Title>
       <ErrorNotice error={error} subject="The transaction" onRetry={onRetry} />
     </Band>
   );

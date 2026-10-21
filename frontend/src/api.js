@@ -170,10 +170,10 @@ export function listUsers({ signal } = {}) {
   return request("/users", { signal });
 }
 
-/** Transactions newest first. */
-export function listTransactions({ userId, flaggedOnly, limit, signal } = {}) {
+/** Transactions newest first, or highest risk score first with `order: "risk"`. */
+export function listTransactions({ userId, flaggedOnly, limit, order, signal } = {}) {
   return request("/transactions", {
-    query: { user_id: userId, flagged_only: flaggedOnly, limit },
+    query: { user_id: userId, flagged_only: flaggedOnly, limit, order },
     signal,
   });
 }

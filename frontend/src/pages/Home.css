@@ -1,0 +1,85 @@
+/* The page's one statement. Page-title size, not larger: the score numeral
+   below is the headline figure and the score bar is the only loud element. */
+.home-statement {
+  max-width: 34ch;
+  font-size: var(--text-h1);
+  font-weight: var(--weight-regular);
+}
+
+.home-try {
+  font-size: var(--text-prose);
+  font-family: var(--font-serif);
+}
+
+/* --- More flagged transactions --------------------------------------------- */
+
+.case-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-4) var(--space-6);
+  list-style: none;
+  padding: 0;
+}
+
+/* Same severity mark as a transactions table row; none for low risk. */
+.case {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--row-mark, transparent);
+}
+
+.case-link {
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.case-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.case:hover {
+  cursor: pointer;
+}
+
+.case:hover .case-link {
+  text-decoration: underline;
+}
+
+/* The ring goes around the whole case rather than the link text. */
+.case-link:focus-visible {
+  outline: none;
+}
+
+.case:has(.case-link:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.case-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.case-fields dt {
+  color: var(--slate);
+}
+
+.case-fields dd {
+  margin: 0;
+}
+
+.case-top {
+  flex-basis: 100%;
+}
+
+.case-level {
+  font-weight: var(--weight-semibold);
+}

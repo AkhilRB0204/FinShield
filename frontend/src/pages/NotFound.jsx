@@ -7,7 +7,7 @@ export default function NotFound() {
     <Band>
       <h1>Page not found</h1>
       <p>
-        There is nothing at this address. <Link to="/">Go to the dashboard</Link>
+        There is nothing at this address. <Link to="/">Go to the home page</Link>
       </p>
     </Band>
   );

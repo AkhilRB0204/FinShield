@@ -8,7 +8,8 @@ import { useUser } from "./UserContext.jsx";
 import "./AppShell.css";
 
 const NAV = [
-  { to: "/", label: "Dashboard", end: true },
+  { to: "/", label: "Home", end: true },
+  { to: "/dashboard", label: "Dashboard" },
   { to: "/transactions", label: "Transactions" },
   { to: "/analyze", label: "Analyze" },
 ];
