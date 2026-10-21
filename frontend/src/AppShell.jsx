@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router";
 
 import ErrorNotice from "./components/ErrorNotice.jsx";
 import Skeleton from "./components/Skeleton.jsx";
+import WakingNotice from "./components/WakingNotice.jsx";
 import { customerLabel, formatMoney } from "./format.js";
 import { useUser } from "./UserContext.jsx";
 import "./AppShell.css";
@@ -34,6 +35,7 @@ export default function AppShell() {
         <CustomerProfile />
       </aside>
       <main id="main" className="shell-main" tabIndex={-1}>
+        <WakingNotice />
         <Outlet />
       </main>
     </div>

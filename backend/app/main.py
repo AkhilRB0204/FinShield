@@ -39,9 +39,13 @@ app = FastAPI(
 
 # Locally the default is permissive; deployments set ALLOWED_ORIGINS explicitly.
 _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+# Optional pattern for origins that are not known in advance, such as Vercel's
+# per-branch and per-deployment preview addresses. Matched against the whole origin.
+_origin_regex = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_origin_regex,
     # The API uses no cookies or auth headers, so cross-origin credentials are never needed.
     allow_credentials=False,
     # The client only reads and posts JSON.

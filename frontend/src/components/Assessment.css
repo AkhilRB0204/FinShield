@@ -4,6 +4,11 @@
   margin: 0;
 }
 
+/* Loading: keep the label placeholder off the numeral placeholder. */
+.txn-score > .skeleton + .txn-score-line {
+  margin-top: var(--space-1);
+}
+
 .txn-score-label {
   font-size: var(--text-sm);
   color: var(--slate);

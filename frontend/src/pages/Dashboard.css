@@ -19,6 +19,11 @@
   border-top: var(--hairline);
 }
 
+/* Loading: the label and figure placeholders sit apart, as the real text does. */
+.stat > .skeleton + .skeleton {
+  margin-top: var(--space-1);
+}
+
 .stat dt {
   font-size: var(--text-sm);
   color: var(--slate);
