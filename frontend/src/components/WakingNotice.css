@@ -1,0 +1,7 @@
+/* A band like any other, divided by a hairline. Static: nothing here moves. */
+.waking-notice {
+  margin: 0;
+  padding: var(--space-3) var(--band-padding-inline);
+  border-bottom: var(--hairline);
+  font-size: var(--text-sm);
+}

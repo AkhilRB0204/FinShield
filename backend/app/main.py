@@ -39,9 +39,13 @@ app = FastAPI(
 
 # Locally the default is permissive; deployments set ALLOWED_ORIGINS explicitly.
 _origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
+# Optional pattern for origins that are not known in advance, such as Vercel's
+# per-branch and per-deployment preview addresses. Matched against the whole origin.
+_origin_regex = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_origin_regex,
     # The API uses no cookies or auth headers, so cross-origin credentials are never needed.
     allow_credentials=False,
     # The client only reads and posts JSON.
@@ -158,6 +162,8 @@ class TransactionView(BaseModel):
     risk_level: RiskLevel
     flagged_for_review: bool
     indicator_count: int
+    # Label of the indicator that contributed the most points; None when none fired.
+    top_indicator: Optional[str] = None
 
     @classmethod
     def of(
@@ -176,6 +182,8 @@ class TransactionView(BaseModel):
             risk_level=assessment.risk_level,
             flagged_for_review=assessment.risk_score >= review_threshold,
             indicator_count=len(assessment.flags),
+            # Flags arrive most points first (see ``detection.assess``).
+            top_indicator=indicator_label(assessment.flags[0].rule) if assessment.flags else None,
         )
 
 
@@ -348,19 +356,28 @@ def list_transactions(
     user_id: Optional[str] = None,
     flagged_only: bool = False,
     limit: int = Query(100, ge=1, le=1000),
+    order: Literal["newest", "risk"] = Query(
+        "newest", description="'newest' first, or highest 'risk' score first."
+    ),
     repo: TransactionRepository = Depends(get_repository),
 ) -> list[TransactionView]:
-    """Transactions newest first, optionally narrowed to one customer or to those
-    flagged for review."""
+    """Transactions newest first, or highest risk score first, optionally narrowed
+    to one customer or to those flagged for review."""
     if user_id is not None and repo.get_profile(user_id) is None:
         raise HTTPException(status_code=404, detail=f"No customer profile for '{user_id}'")
 
+    # Ordering by risk needs every match before the limit applies.
+    fetch_limit = None if order == "risk" else limit
     views = []
-    for txn in repo.list_transactions(user_id=user_id, flagged_only=flagged_only, limit=limit):
+    for txn in repo.list_transactions(user_id=user_id, flagged_only=flagged_only, limit=fetch_limit):
         assessment = repo.get_assessment(txn.transaction_id)
         if assessment is None:
             continue
         views.append(TransactionView.of(txn, assessment, repo.review_threshold))
+    if order == "risk":
+        # Ties break on id so the order is the same on every request.
+        views.sort(key=lambda v: (-v.risk_score, v.transaction_id))
+        views = views[:limit]
     return views
 
 

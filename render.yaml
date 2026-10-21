@@ -16,6 +16,11 @@ services:
       # Comma-separate to add more. Unset, the API allows any origin.
       - key: ALLOWED_ORIGINS
         value: https://finshield-mu.vercel.app
+      # Vercel's branch and preview addresses for this project, such as
+      # finshield-git-main-spendsense-s-projects.vercel.app. The API sends no
+      # credentials and serves only synthetic data, so this widens nothing sensitive.
+      - key: ALLOWED_ORIGIN_REGEX
+        value: https://finshield-[a-z0-9-]+-spendsense-s-projects\.vercel\.app
       # Optional. Without it, explanations use the deterministic fallback.
       - key: ANTHROPIC_API_KEY
         sync: false
