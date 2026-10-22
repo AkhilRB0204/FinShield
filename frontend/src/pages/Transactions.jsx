@@ -15,8 +15,6 @@ import {
   riskMark,
 } from "../format.js";
 import { useApi } from "../useApi.js";
-import AskPanel from "./AskPanel.jsx";
-import "../components/Assessment.css";
 import "../components/DataTable.css";
 import "./Transactions.css";
 
@@ -54,10 +52,6 @@ export default function Transactions() {
     <>
       <Band>
         <h1>Transactions</h1>
-        <AskPanel />
-      </Band>
-
-      <Band aria-label="Filters">
         <div className="table-filters" role="group" aria-label="Filter transactions">
           <label className="control-check">
             <input

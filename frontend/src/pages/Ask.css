@@ -1,0 +1,127 @@
+/* --- Questions -------------------------------------------------------------- */
+
+.ask > * {
+  margin: 0;
+}
+
+.ask > * + * {
+  margin-top: var(--space-5);
+}
+
+.ask-form {
+  display: grid;
+  gap: var(--space-3);
+  max-width: var(--measure);
+}
+
+.ask-form .control-label {
+  margin: 0;
+}
+
+/* The control-input base is sized for one line; questions may carry a pasted message. */
+.ask-question {
+  display: block;
+  min-height: 7rem;
+  padding: var(--space-3);
+  line-height: var(--leading-data);
+  resize: vertical;
+}
+
+.ask-submit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.ask-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.ask-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  max-width: var(--measure);
+}
+
+.ask-starters .control-label {
+  flex-basis: 100%;
+  margin-bottom: 0;
+}
+
+/* Starters are whole questions, so they may wrap. */
+.ask-starters .button-secondary {
+  text-align: left;
+  padding-block: var(--space-2);
+}
+
+.ask-starter-note {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  color: var(--slate);
+}
+
+/* --- Answer ----------------------------------------------------------------- */
+
+.ask-answer {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+
+.ask-answer > * {
+  margin: 0;
+}
+
+.ask-answer .case-strip {
+  width: 100%;
+}
+
+.ask-checked {
+  font-size: var(--text-sm);
+  color: var(--slate);
+}
+
+.ask-checked summary {
+  cursor: pointer;
+}
+
+.ask-calls {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+}
+
+.ask-calls li + li {
+  margin-top: var(--space-3);
+}
+
+.ask-calls .case-fields,
+.ask-calls p {
+  margin: var(--space-1) 0 0;
+}
+
+.ask-call-tool {
+  color: var(--ink);
+  font-weight: var(--weight-semibold);
+}
+
+/* A pasted message, shown whole and as written. */
+.ask-call-long {
+  flex-basis: 100%;
+}
+
+.ask-call-long dd {
+  max-width: var(--measure);
+  max-height: 14rem;
+  overflow: auto;
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--hairline-width) solid var(--slate);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

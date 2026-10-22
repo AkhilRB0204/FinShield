@@ -12,7 +12,13 @@ export function customerLabel(userId) {
   return match ? `Customer ${match[1]}` : "Customer";
 }
 
-const RISK_LEVEL_LABELS = { low: "Low", medium: "Medium", high: "High", critical: "Critical" };
+/** "txn_003722" → "003722". Transaction ids are identifiers and never shown as-is. */
+export function transactionNumber(transactionId) {
+  const match = /^txn_(\w+)$/.exec(transactionId);
+  return match ? match[1] : "";
+}
+
+const RISK_LEVEL_LABELS ={ low: "Low", medium: "Medium", high: "High", critical: "Critical" };
 
 /** Fixed lookup: `risk_level` arrives lowercase and is mapped, never echoed. */
 export function riskLevelLabel(level) {

@@ -295,7 +295,8 @@ class AnalyzeRequest(BaseModel):
 class AskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    question: str = Field(min_length=1, max_length=500)
+    # Room for a pasted message (up to 20,000 characters, as on /analyze-message) and a question.
+    question: str = Field(min_length=1, max_length=21_000)
 
 
 class ToolArgumentView(BaseModel):
