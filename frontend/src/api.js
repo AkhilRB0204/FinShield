@@ -166,6 +166,14 @@ export function analyzeTransaction(transaction, { explanation = true, signal } =
   return request("/analyze", { method: "POST", body: transaction, query: { explanation }, signal });
 }
 
+/**
+ * Screen a message's raw text with the message rules. Answers in the same shape
+ * as `analyzeTransaction`. `explanation: false` skips the explanation.
+ */
+export function analyzeMessage(text, { explanation = true, signal } = {}) {
+  return request("/analyze-message", { method: "POST", body: { text }, query: { explanation }, signal });
+}
+
 /** Category and city choices for the analyze form. */
 export function getReference({ signal } = {}) {
   return request("/reference", { signal });

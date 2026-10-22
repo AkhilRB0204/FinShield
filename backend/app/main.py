@@ -24,9 +24,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .ask import AskUnavailable
 from .ask import answer as answer_question
-from .detection import assess, category_label, compound_multiplier
+from .detection import assess, category_label, compound_multiplier, transaction_subject
 from .explainer import Explanation, explain, indicator_label
 from .generator import CITIES
+from .message_detection import assess_message, message_subject
+from .message_rules import MESSAGE_RULES
+from .message_rules import REVIEW_THRESHOLD as MESSAGE_REVIEW_THRESHOLD
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
 from .rules import MAX_SCORE, RuleConfig
@@ -79,9 +82,10 @@ class IndicatorView(BaseModel):
     detail: str
 
     @classmethod
-    def of(cls, flag: FraudFlag) -> "IndicatorView":
+    def of(cls, flag: FraudFlag, rules: Mapping[str, RuleConfig]) -> "IndicatorView":
+        """``rules`` is the registry the flag came from, for its label."""
         return cls(
-            indicator=indicator_label(flag.rule),
+            indicator=indicator_label(flag.rule, rules),
             severity=flag.severity,
             weight=flag.weight,
             points=flag.points,
@@ -144,7 +148,7 @@ class AssessmentView(BaseModel):
             risk_score=assessment.risk_score,
             risk_level=assessment.risk_level,
             flagged_for_review=assessment.risk_score >= review_threshold,
-            indicators=[IndicatorView.of(f) for f in assessment.flags],
+            indicators=[IndicatorView.of(f, rules) for f in assessment.flags],
             indicators_not_triggered=not_triggered(assessment, rules),
             breakdown=ScoreBreakdown.of(assessment, review_threshold),
         )
@@ -353,7 +357,38 @@ def analyze(
     if not explanation:
         return AnalyzeResponse(assessment=view)
 
-    written = explain(txn, assessment, repo.rules)
+    written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
+    return AnalyzeResponse(
+        assessment=view,
+        explanation=written.explanation,
+        action=written.action,
+        explanation_source=explanation_source(written),
+    )
+
+
+class AnalyzeMessageRequest(BaseModel):
+    """A message to screen: raw text, optionally opening with From, Reply-To and
+    Subject header lines."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=20_000)
+
+
+@app.post("/analyze-message", response_model=AnalyzeResponse)
+def analyze_message(
+    request: AnalyzeMessageRequest,
+    explanation: bool = Query(True, description="Include a plain-English explanation."),
+) -> AnalyzeResponse:
+    """Score one message with the message rules. The response has the same shape
+    as ``/analyze``: the same scoring, breakdown and explainer, with the message
+    registry in place of the transaction registry."""
+    assessment = assess_message(request.text)
+    view = AssessmentView.of(assessment, MESSAGE_REVIEW_THRESHOLD, MESSAGE_RULES)
+    if not explanation:
+        return AnalyzeResponse(assessment=view)
+
+    written = explain(message_subject(request.text, MESSAGE_REVIEW_THRESHOLD), assessment, MESSAGE_RULES)
     return AnalyzeResponse(
         assessment=view,
         explanation=written.explanation,
@@ -429,12 +464,12 @@ def get_transaction(
     base = TransactionView.of(txn, assessment, repo.review_threshold)
     detail = TransactionDetail(
         **base.model_dump(),
-        indicators=[IndicatorView.of(f) for f in assessment.flags],
+        indicators=[IndicatorView.of(f, repo.rules) for f in assessment.flags],
         indicators_not_triggered=not_triggered(assessment, repo.rules),
         breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
     if explanation:
-        written = explain(txn, assessment, repo.rules)
+        written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
         detail.explanation = written.explanation
         detail.action = written.action
         detail.explanation_source = explanation_source(written)
