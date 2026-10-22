@@ -16,15 +16,19 @@ from datetime import timedelta
 from typing import Callable, Iterable, Mapping, Optional
 
 from .generator import haversine_miles
-from .models import HIGH_RISK_CATEGORIES, Category, FraudFlag, RiskAssessment, Transaction, UserProfile
-from .rules import (
-    COMPOUND_BONUS_PER_FLAG,
-    COMPOUND_MAX_MULTIPLIER,
-    COMPOUND_MIN_FLAGS,
-    MAX_SCORE,
-    RULES,
-    RuleConfig,
+from .models import (
+    HIGH_RISK_CATEGORIES,
+    Category,
+    ExplanationSubject,
+    FraudFlag,
+    RiskAssessment,
+    RiskLevel,
+    Transaction,
+    UserProfile,
 )
+from .rules import REVIEW_THRESHOLD, RULES, RuleConfig
+from .scoring import assessment_from_flags, compound_multiplier  # noqa: F401 (re-exported)
+from .scoring import flag as _flag
 
 Registry = Mapping[str, RuleConfig]
 Rule = Callable[[Transaction, UserProfile, list[Transaction], Registry], Optional[FraudFlag]]
@@ -46,8 +50,34 @@ def _z_score(txn: Transaction, profile: UserProfile) -> Optional[float]:
     return (txn.amount - profile.avg_amount) / profile.std_amount
 
 
-def _flag(name: str, cfg: RuleConfig, severity: float, detail: str) -> FraudFlag:
-    return FraudFlag(rule=name, severity=min(1.0, max(0.0, severity)), weight=cfg.weight, detail=detail)
+# --- Explanation subject -------------------------------------------------------
+
+TRANSACTION_ACTIONS: dict[RiskLevel, str] = {
+    RiskLevel.LOW: "No action is needed; this transaction can proceed normally.",
+    RiskLevel.MEDIUM: "Keep watching this account for further unusual activity.",
+    RiskLevel.HIGH: "Hold this transaction for manual review before it is approved.",
+    RiskLevel.CRITICAL: (
+        "Hold this transaction and contact the cardholder to confirm it before it settles."
+    ),
+}
+
+
+def transaction_subject(txn: Transaction, review_threshold: float = REVIEW_THRESHOLD) -> ExplanationSubject:
+    """How the explainer describes a transaction. Deliberately excludes
+    ``is_fraud``: it is evaluation ground truth and never reaches the model."""
+    return ExplanationSubject(
+        noun="transaction",
+        facts=[
+            ("Amount", _money(txn.amount)),
+            ("Merchant", txn.merchant),
+            ("Category", category_label(txn.category)),
+            ("Location", f"{txn.city}, {txn.state}"),
+            ("Date and time", f"{txn.timestamp:%A %d %B %Y at %H:%M}"),
+        ],
+        summary=f"This transaction of {_money(txn.amount)} at {txn.merchant}",
+        review_threshold=review_threshold,
+        actions=TRANSACTION_ACTIONS,
+    )
 
 
 # --- Rules ---------------------------------------------------------------------
@@ -236,13 +266,6 @@ RULE_FUNCTIONS: dict[str, Rule] = {
 # --- Scoring -------------------------------------------------------------------
 
 
-def compound_multiplier(flag_count: int) -> float:
-    if flag_count < COMPOUND_MIN_FLAGS:
-        return 1.0
-    bonus = COMPOUND_BONUS_PER_FLAG * (flag_count - COMPOUND_MIN_FLAGS + 1)
-    return min(COMPOUND_MAX_MULTIPLIER, 1.0 + bonus)
-
-
 def assess(
     txn: Transaction,
     profile: UserProfile,
@@ -263,17 +286,7 @@ def assess(
         for name, rule in RULE_FUNCTIONS.items()
         if name in rules and (flag := rule(txn, profile, prior, rules)) is not None
     ]
-    # Stable sort: ties keep registry order.
-    flags.sort(key=lambda f: f.points, reverse=True)
-
-    raw = sum(f.points for f in flags)
-    score = min(MAX_SCORE, raw * compound_multiplier(len(flags)))
-    return RiskAssessment(
-        transaction_id=txn.transaction_id,
-        risk_score=score,
-        risk_level=RiskAssessment.level_for(score),
-        flags=flags,
-    )
+    return assessment_from_flags(txn.transaction_id, flags)
 
 
 def assess_all(

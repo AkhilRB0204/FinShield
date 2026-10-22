@@ -1,0 +1,8 @@
+.analysis-result {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.analysis-result > * {
+  margin: 0;
+}

@@ -72,6 +72,25 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"
 
 
+class ExplanationSubject(BaseModel):
+    """What was assessed, described for the explainer.
+
+    Each detection engine builds one, so the explainer never needs to know which
+    engine produced the flags. Every string here is reader-facing.
+    """
+
+    # What the thing is called in a sentence: "transaction", "message".
+    noun: str
+    # Labelled facts shown to the model, in order: ("Amount", "$12.00").
+    facts: list[tuple[str, str]] = Field(default_factory=list)
+    # Opens the deterministic explanation, completed by " scored ...":
+    # "This transaction of $12.00 at Shop".
+    summary: str
+    review_threshold: float
+    # The recommended action for each risk level, used when the model is not.
+    actions: dict[RiskLevel, str]
+
+
 class RiskAssessment(BaseModel):
     transaction_id: str
     risk_score: float

@@ -22,9 +22,14 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
-from .detection import assess, category_label, compound_multiplier
+from .ask import AskUnavailable
+from .ask import answer as answer_question
+from .detection import assess, category_label, compound_multiplier, transaction_subject
 from .explainer import Explanation, explain, indicator_label
 from .generator import CITIES
+from .message_detection import assess_message, message_subject
+from .message_rules import MESSAGE_RULES
+from .message_rules import REVIEW_THRESHOLD as MESSAGE_REVIEW_THRESHOLD
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
 from .rules import MAX_SCORE, RuleConfig
@@ -77,9 +82,10 @@ class IndicatorView(BaseModel):
     detail: str
 
     @classmethod
-    def of(cls, flag: FraudFlag) -> "IndicatorView":
+    def of(cls, flag: FraudFlag, rules: Mapping[str, RuleConfig]) -> "IndicatorView":
+        """``rules`` is the registry the flag came from, for its label."""
         return cls(
-            indicator=indicator_label(flag.rule),
+            indicator=indicator_label(flag.rule, rules),
             severity=flag.severity,
             weight=flag.weight,
             points=flag.points,
@@ -142,7 +148,7 @@ class AssessmentView(BaseModel):
             risk_score=assessment.risk_score,
             risk_level=assessment.risk_level,
             flagged_for_review=assessment.risk_score >= review_threshold,
-            indicators=[IndicatorView.of(f) for f in assessment.flags],
+            indicators=[IndicatorView.of(f, rules) for f in assessment.flags],
             indicators_not_triggered=not_triggered(assessment, rules),
             breakdown=ScoreBreakdown.of(assessment, review_threshold),
         )
@@ -286,6 +292,35 @@ class AnalyzeRequest(BaseModel):
     transaction_id: str = "unassigned"
 
 
+class AskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=500)
+
+
+class ToolArgumentView(BaseModel):
+    name: str
+    value: str
+
+
+class ToolCallView(BaseModel):
+    """One lookup the answer was built from, labelled for display."""
+
+    tool: str
+    arguments: list[ToolArgumentView]
+
+
+class AskResponse(BaseModel):
+    # Model output with citations removed; render as text only.
+    answer: str
+    # Ids of the transactions the answer cites, in order of first citation. Each
+    # appeared in a tool result for this question.
+    transaction_ids: list[str]
+    # The same transactions, for linking.
+    transactions: list[TransactionView]
+    checked: list[ToolCallView]
+
+
 class AnalyzeResponse(BaseModel):
     assessment: AssessmentView
     explanation: Optional[str] = None
@@ -322,7 +357,38 @@ def analyze(
     if not explanation:
         return AnalyzeResponse(assessment=view)
 
-    written = explain(txn, assessment, repo.rules)
+    written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
+    return AnalyzeResponse(
+        assessment=view,
+        explanation=written.explanation,
+        action=written.action,
+        explanation_source=explanation_source(written),
+    )
+
+
+class AnalyzeMessageRequest(BaseModel):
+    """A message to screen: raw text, optionally opening with From, Reply-To and
+    Subject header lines."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str = Field(min_length=1, max_length=20_000)
+
+
+@app.post("/analyze-message", response_model=AnalyzeResponse)
+def analyze_message(
+    request: AnalyzeMessageRequest,
+    explanation: bool = Query(True, description="Include a plain-English explanation."),
+) -> AnalyzeResponse:
+    """Score one message with the message rules. The response has the same shape
+    as ``/analyze``: the same scoring, breakdown and explainer, with the message
+    registry in place of the transaction registry."""
+    assessment = assess_message(request.text)
+    view = AssessmentView.of(assessment, MESSAGE_REVIEW_THRESHOLD, MESSAGE_RULES)
+    if not explanation:
+        return AnalyzeResponse(assessment=view)
+
+    written = explain(message_subject(request.text, MESSAGE_REVIEW_THRESHOLD), assessment, MESSAGE_RULES)
     return AnalyzeResponse(
         assessment=view,
         explanation=written.explanation,
@@ -398,16 +464,56 @@ def get_transaction(
     base = TransactionView.of(txn, assessment, repo.review_threshold)
     detail = TransactionDetail(
         **base.model_dump(),
-        indicators=[IndicatorView.of(f) for f in assessment.flags],
+        indicators=[IndicatorView.of(f, repo.rules) for f in assessment.flags],
         indicators_not_triggered=not_triggered(assessment, repo.rules),
         breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
     if explanation:
-        written = explain(txn, assessment, repo.rules)
+        written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
         detail.explanation = written.explanation
         detail.action = written.action
         detail.explanation_source = explanation_source(written)
     return detail
+
+
+_ASK_UNAVAILABLE = {
+    "no_api_key": "Questions need the Anthropic API, and no API key is configured.",
+    "model_unavailable": "The question could not be answered because Claude could not be reached.",
+}
+
+
+@app.post("/ask", response_model=AskResponse)
+def ask(request: AskRequest, repo: TransactionRepository = Depends(get_repository)) -> AskResponse:
+    """Answer a question about the dataset from lookups only.
+
+    The model reads transactions, assessments, aggregates and the rule registry
+    through read-only tools and reports what they return. It never scores
+    anything. ``checked`` lists every lookup it made.
+    """
+    try:
+        result = answer_question(request.question, repo)
+    except AskUnavailable as err:
+        reason = str(err)
+        raise HTTPException(status_code=503, detail=_ASK_UNAVAILABLE.get(reason, _ASK_UNAVAILABLE["model_unavailable"]))
+
+    transactions = []
+    for transaction_id in result.transaction_ids:
+        txn = repo.get_transaction(transaction_id)
+        assessment = repo.get_assessment(transaction_id)
+        if txn is not None and assessment is not None:
+            transactions.append(TransactionView.of(txn, assessment, repo.review_threshold))
+    return AskResponse(
+        answer=result.text,
+        transaction_ids=[t.transaction_id for t in transactions],
+        transactions=transactions,
+        checked=[
+            ToolCallView(
+                tool=call.tool,
+                arguments=[ToolArgumentView(name=name, value=value) for name, value in call.arguments],
+            )
+            for call in result.calls
+        ],
+    )
 
 
 @app.get("/stats", response_model=Stats)

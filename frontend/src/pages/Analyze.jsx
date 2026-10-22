@@ -1,10 +1,9 @@
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { analyzeTransaction, getReference } from "../api.js";
-import { AssessmentColumns, ColumnsSkeleton, ScoreHeadline, ScoreSkeleton } from "../components/Assessment.jsx";
+import AnalysisResult from "../components/AnalysisResult.jsx";
 import Band from "../components/Band.jsx";
 import ErrorNotice from "../components/ErrorNotice.jsx";
-import ScoreBar, { scoreSegments } from "../components/ScoreBar.jsx";
 import Skeleton from "../components/Skeleton.jsx";
 import { customerLabel } from "../format.js";
 import { useApi } from "../useApi.js";
@@ -127,7 +126,7 @@ export default function Analyze() {
               Submit a transaction to see its risk score, the indicators behind it, and an explanation.
             </p>
           ) : (
-            <AnalyzeResult key={submission.key} body={submission.body} />
+            <AnalysisResult key={submission.key} analyze={analyzeTransaction} input={submission.body} />
           )}
         </div>
       </Band>
@@ -269,75 +268,6 @@ function AnalyzeForm({ form, set, chooseCity, loadExample, submit, reference, ca
  * Two requests, like the detail page: without the explanation so the score
  * renders at once, then with it. Remounted (by key) for every submission.
  */
-function AnalyzeResult({ body }) {
-  const [scored, setScored] = useState({ status: "loading" });
-  const [explained, setExplained] = useState({ status: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const [highlighted, setHighlighted] = useState(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    const settle = (set) => [
-      (data) => set({ status: "ready", data }),
-      (error) => error?.name !== "AbortError" && set({ status: "error", error }),
-    ];
-    setScored({ status: "loading" });
-    setExplained({ status: "loading" });
-    analyzeTransaction(body, { explanation: false, signal }).then(...settle(setScored));
-    analyzeTransaction(body, { signal }).then(...settle(setExplained));
-    return () => controller.abort();
-  }, [body, attempt]);
-
-  const retry = () => setAttempt((n) => n + 1);
-  const response = scored.data ?? explained.data;
-  const assessment = response?.assessment;
-  const segments = useMemo(
-    () => (assessment ? scoreSegments(assessment.indicators, assessment.breakdown) : []),
-    [assessment],
-  );
-
-  if (!assessment) {
-    if (scored.status === "error") {
-      return <ErrorNotice error={scored.error} subject="The assessment" verb="completed" onRetry={retry} />;
-    }
-    return <ResultSkeleton />;
-  }
-
-  return (
-    <div className="analyze-result-body">
-      <ScoreHeadline
-        score={assessment.risk_score}
-        level={assessment.risk_level}
-        flagged={assessment.flagged_for_review}
-      />
-      <ScoreBar
-        segments={segments}
-        breakdown={assessment.breakdown}
-        level={assessment.risk_level}
-        onHighlight={setHighlighted}
-      />
-      <AssessmentColumns
-        segments={segments}
-        notTriggered={assessment.indicators_not_triggered}
-        highlighted={highlighted}
-        explanation={{ ...explained, retry }}
-        headingLevel={3}
-      />
-    </div>
-  );
-}
-
-function ResultSkeleton() {
-  return (
-    <div className="analyze-result-body" aria-busy="true">
-      <ScoreSkeleton />
-      <Skeleton height="calc(var(--score-bar-height) + 3.5rem)" />
-      <ColumnsSkeleton />
-    </div>
-  );
-}
-
 function FormSkeleton() {
   return (
     <div className="analyze-form" aria-busy="true" aria-label="Loading form">

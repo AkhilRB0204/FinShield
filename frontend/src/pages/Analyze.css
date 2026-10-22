@@ -53,12 +53,3 @@
 .analyze-actions > p {
   margin: 0;
 }
-
-.analyze-result-body {
-  display: grid;
-  gap: var(--space-6);
-}
-
-.analyze-result-body > * {
-  margin: 0;
-}
