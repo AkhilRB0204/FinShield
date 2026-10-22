@@ -12,7 +12,9 @@ and a future Postgres store can swap it.
 
 from __future__ import annotations
 
+import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
 from typing import Literal, Mapping, Optional
@@ -36,17 +38,41 @@ from .rules import MAX_SCORE, RuleConfig
 
 load_dotenv()
 
+# uvicorn configures this logger before importing the app, so its INFO lines
+# reach the console locally and Render's log stream in production.
+logger = logging.getLogger("uvicorn.error")
+
+
+def parse_origins(raw: Optional[str]) -> list[str]:
+    """ALLOWED_ORIGINS as a list: comma-separated, whitespace stripped, empties
+    dropped. Unset, or set to nothing but commas and spaces, means any origin."""
+    origins = [origin.strip() for origin in (raw or "").split(",") if origin.strip()]
+    return origins or ["*"]
+
+
+# Locally the default is permissive; deployments set ALLOWED_ORIGINS explicitly.
+_origins = parse_origins(os.environ.get("ALLOWED_ORIGINS"))
+# Optional pattern for origins that are not known in advance, such as Vercel's
+# per-branch and per-deployment preview addresses. Matched against the whole origin.
+_origin_regex = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Logged at startup so a CORS failure can be checked against what the server
+    # actually parsed, not what the dashboard was believed to say.
+    logger.info("CORS allowed origins: %s", _origins)
+    logger.info("CORS allowed origin pattern: %s", _origin_regex or "none")
+    yield
+
+
 app = FastAPI(
     title="FinShield",
     version="0.1.0",
     description="Transaction risk assessment. Scores are produced by a deterministic rules engine.",
+    lifespan=lifespan,
 )
 
-# Locally the default is permissive; deployments set ALLOWED_ORIGINS explicitly.
-_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "*").split(",") if o.strip()]
-# Optional pattern for origins that are not known in advance, such as Vercel's
-# per-branch and per-deployment preview addresses. Matched against the whole origin.
-_origin_regex = os.environ.get("ALLOWED_ORIGIN_REGEX") or None
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
@@ -330,6 +356,12 @@ class AnalyzeResponse(BaseModel):
 
 
 # --- Routes --------------------------------------------------------------------
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    """What this service is, for anyone who opens the API's address in a browser."""
+    return {"service": app.title, "version": app.version, "docs": "/docs"}
 
 
 @app.get("/health")

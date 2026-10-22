@@ -1,11 +1,17 @@
 /**
  * FinShield API client. Every endpoint the backend exposes, and nothing else.
  *
- * Failures throw typed errors so callers can branch on them:
- * - ApiError: the server answered with a non-2xx status. Carries `status` and
- *   the server's `detail` string.
- * - NetworkError: no usable answer (offline, DNS, CORS, or a non-JSON body).
- *   A subclass of ApiError with `status` 0.
+ * Every failure throws an `ApiError` whose `kind` says what is known about it,
+ * and nothing more:
+ * - "timeout": no answer within the request's timeout. Why is not known.
+ * - "network": no answer at all: the request never reached a server that
+ *   replied (offline, DNS, CORS, the API not running), or no API address is
+ *   configured.
+ * - "http": the API answered with an error status, or with a body that is not
+ *   JSON. Carries `status` and the server's `detail` string.
+ *
+ * A request the caller aborts rejects with the browser's AbortError, which is
+ * not a failure and is not wrapped.
  */
 
 const DEV_FALLBACK_URL = "http://localhost:8000";
@@ -13,29 +19,28 @@ const DEV_FALLBACK_URL = "http://localhost:8000";
 function resolveBaseUrl() {
   const configured = import.meta.env.VITE_API_URL;
   if (configured) return configured.replace(/\/+$/, "");
-  // A production build never guesses a host: requests fail with a NetworkError
-  // instead, so the shell still renders and shows the problem.
+  // A production build never guesses a host: requests fail with a "network"
+  // error instead, so the shell still renders and shows the problem.
   return import.meta.env.DEV ? DEV_FALLBACK_URL : null;
 }
 
 export const API_URL = resolveBaseUrl();
 
+// Once, on load: the first thing to check when requests fail is where they went.
+console.info(`[FinShield] API base URL: ${API_URL ?? "not configured (VITE_API_URL is unset)"}`);
+
 export class ApiError extends Error {
-  constructor(status, detail) {
-    super(detail);
+  /** `kind` is "timeout", "network" or "http"; `status` and `detail` are set for "http". */
+  constructor(kind, message, { status = null, detail = null, timeoutSeconds = null, cause } = {}) {
+    super(message, { cause });
     this.name = "ApiError";
+    this.kind = kind;
     this.status = status;
     this.detail = detail;
-  }
-}
-
-export class NetworkError extends ApiError {
-  /** `reason` is "unconfigured", "unreachable" or "unreadable". */
-  constructor(detail, reason, cause) {
-    super(0, detail);
-    this.name = "NetworkError";
-    this.reason = reason;
-    this.cause = cause;
+    // For "timeout": how long the request waited.
+    this.timeoutSeconds = timeoutSeconds;
+    // The address the request went to, or null when none is configured.
+    this.baseUrl = API_URL;
   }
 }
 
@@ -71,8 +76,8 @@ function track(token, active) {
   for (const listener of inFlightListeners) listener(inFlight.size);
 }
 
-// Longer than a Render wake-up, so only a server that is down or hung times out.
-const TIMEOUT_MS = 75_000;
+// A free Render instance can take most of a minute to wake.
+const TIMEOUT_MS = 60_000;
 
 /**
  * `untracked` leaves a request out of the in-flight count: one that is slow
@@ -89,8 +94,19 @@ async function request(path, { untracked = false, ...options } = {}) {
   }
 }
 
+/** One signal that aborts when either does, keeping the reason of the one that fired. */
+function eitherSignal(a, b) {
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([a, b]);
+  const controller = new AbortController();
+  for (const s of [a, b]) {
+    if (s.aborted) controller.abort(s.reason);
+    else s.addEventListener("abort", () => controller.abort(s.reason), { once: true });
+  }
+  return controller.signal;
+}
+
 async function send(path, { method = "GET", query, body, signal, timeoutMs = TIMEOUT_MS } = {}) {
-  if (!API_URL) throw new NetworkError("This build is not configured with an API address.", "unconfigured");
+  if (!API_URL) throw new ApiError("network", "No API address is configured: VITE_API_URL is unset.");
   const url = new URL(API_URL + path);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -98,27 +114,20 @@ async function send(path, { method = "GET", query, body, signal, timeoutMs = TIM
     }
   }
 
-  // One signal for both the caller's abort and the timeout, covering the body too.
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, timeoutMs);
-  const forwardAbort = () => controller.abort();
-  if (signal?.aborted) controller.abort();
-  signal?.addEventListener("abort", forwardAbort);
-
+  // The timeout covers reading the body too, since the same signal does.
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const combined = signal ? eitherSignal(signal, timeout) : timeout;
   try {
-    return await exchange(url, method, body, controller.signal);
+    return await exchange(url, method, body, combined);
   } catch (err) {
-    if (err?.name === "AbortError" && timedOut) {
-      throw new NetworkError("The FinShield service did not respond in time.", "unreachable", err);
+    if (timeout.aborted && !signal?.aborted) {
+      const timeoutSeconds = timeoutMs / 1000;
+      throw new ApiError("timeout", `No response from ${url.origin} within ${timeoutSeconds} seconds.`, {
+        timeoutSeconds,
+        cause: err,
+      });
     }
     throw err;
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -132,25 +141,26 @@ async function exchange(url, method, body, signal) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {
-    if (err?.name === "AbortError") throw err;
-    throw new NetworkError("The FinShield service could not be reached.", "unreachable", err);
+    if (signal.aborted) throw err; // A timeout or the caller's abort; `send` tells them apart.
+    throw new ApiError("network", `Could not reach ${url.origin}.`, { cause: err });
   }
 
   let payload = null;
+  let unreadable = null;
   try {
     payload = await response.json();
   } catch (err) {
-    if (err?.name === "AbortError") throw err;
-    if (response.ok) {
-      throw new NetworkError("The FinShield service sent an unreadable response.", "unreadable", err);
-    }
+    if (signal.aborted) throw err;
+    unreadable = err;
   }
 
   if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      detailToString(payload?.detail, `Request failed with status ${response.status}.`),
-    );
+    const detail = detailToString(payload?.detail, `Request failed with status ${response.status}.`);
+    throw new ApiError("http", `${response.status}: ${detail}`, { status: response.status, detail });
+  }
+  if (unreadable) {
+    const detail = "The response was not valid JSON.";
+    throw new ApiError("http", `${response.status}: ${detail}`, { status: response.status, detail, cause: unreadable });
   }
   return payload;
 }

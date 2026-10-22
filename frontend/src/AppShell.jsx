@@ -51,7 +51,7 @@ function CustomerProfile() {
   if (status === "error") {
     return (
       <section className="rail-profile rail-error" aria-label="Demo customer">
-        <ErrorNotice error={error} subject="Customers" onRetry={retry} />
+        <ErrorNotice compact error={error} subject="Customers" onRetry={retry} />
       </section>
     );
   }
