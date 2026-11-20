@@ -477,8 +477,11 @@ def get_transaction(
 
 
 _ASK_UNAVAILABLE = {
-    "no_api_key": "Questions need the Anthropic API, and no API key is configured.",
-    "model_unavailable": "The question could not be answered because Claude could not be reached.",
+    "no_api_key": (
+        "Questions need a language model, and none is configured. "
+        "Set GEMINI_API_KEY (or ANTHROPIC_API_KEY) on the server."
+    ),
+    "model_unavailable": "The question could not be answered because the language model could not be reached.",
 }
 
 

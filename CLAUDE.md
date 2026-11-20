@@ -8,7 +8,8 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
   score, every time. Risk scores, flag severities, weights, and level thresholds drive real
   decisions — never approximate, round away, or "smooth" them, and never introduce randomness
   or model calls into the scoring path.
-- **An LLM explains decisions; it never makes them.** The Anthropic client may only turn an
+- **An LLM explains decisions; it never makes them.** Whichever provider is configured in
+  `backend/app/llm.py` (Claude, Gemini, or a local model through Ollama) may only turn an
   already-computed `RiskAssessment` into human-readable language. It must not change a score,
   add or remove flags, pick a risk level, or decide an outcome. If the LLM is unavailable,
   detection still works.

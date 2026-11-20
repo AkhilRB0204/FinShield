@@ -66,7 +66,7 @@ export function formatRate(rate) {
 
 const EXPLANATION_SOURCES = {
   model: "Written by Claude from the indicators listed. Claude explains the score; it did not set it.",
-  no_api_key: "Assembled from the detector output, because no Anthropic API key is configured.",
+  no_api_key: "Assembled from the detector output, because no language model API key is configured.",
   no_indicators:
     "Assembled from the detector output. No indicators were triggered, so there was nothing for Claude to explain.",
   model_unavailable: "Assembled from the detector output, because Claude could not be reached.",

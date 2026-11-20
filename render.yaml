@@ -21,6 +21,17 @@ services:
       # credentials and serves only synthetic data, so this widens nothing sensitive.
       - key: ALLOWED_ORIGIN_REGEX
         value: https://finshield-[a-z0-9-]+-spendsense-s-projects\.vercel\.app
-      # Optional. Without it, explanations use the deterministic fallback.
+      # Which model writes explanations and answers questions: gemini, anthropic,
+      # ollama or none. Unset, the first provider with a key is used.
+      - key: LLM_PROVIDER
+        value: gemini
+      # Google AI Studio key. Gemini has a free tier, so the hosted demo uses it.
+      - key: GEMINI_API_KEY
+        sync: false
+      # Optional model override, e.g. a newer Gemini model. Defaults per provider.
+      - key: LLM_MODEL
+        sync: false
+      # Optional. Only used when LLM_PROVIDER is anthropic. Without any key,
+      # explanations use the deterministic fallback and questions are unavailable.
       - key: ANTHROPIC_API_KEY
         sync: false

@@ -12,6 +12,10 @@ describes its own subject (``detection.transaction_subject``,
 ``_fallback`` builds the same shape of explanation deterministically from the
 flag details, so the system keeps explaining itself when no API key is
 configured or the call fails.
+
+Which model writes the text is chosen in ``llm`` (Claude, Gemini or a local
+model through Ollama); the prompt, the parsing and the fallback are the same
+for all of them.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from typing import TYPE_CHECKING, Literal, Mapping, Optional
 
 from pydantic import BaseModel
 
+from . import llm
 from .models import ExplanationSubject, RiskAssessment
 from .rules import RULES, RuleConfig
 
@@ -203,20 +208,38 @@ def explain(
     if not assessment.flags:
         return _fallback(subject, assessment, rules, "no_indicators")
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not llm.is_configured():
         return _fallback(subject, assessment, rules, "no_api_key")
-    client = _client()
-    if client is None:
-        return _fallback(subject, assessment, rules, "model_unavailable")
 
+    system = system_prompt(subject)
+    user = _prompt(subject, assessment, rules)
     try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=system_prompt(subject),
-            messages=[{"role": "user", "content": _prompt(subject, assessment, rules)}],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text")
+        if llm.provider() == "anthropic":
+            client = _client()
+            if client is None:
+                return _fallback(subject, assessment, rules, "model_unavailable")
+            response = client.messages.create(
+                model=llm.model_name(MODEL),
+                max_tokens=MAX_TOKENS,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = "".join(block.text for block in response.content if block.type == "text")
+        else:
+            compat = llm.openai_client()
+            if compat is None:
+                return _fallback(subject, assessment, rules, "model_unavailable")
+            response = compat.chat.completions.create(
+                model=llm.model_name(MODEL),
+                # Thinking models count their reasoning against this limit, so it
+                # is larger than the reply itself needs.
+                max_tokens=MAX_TOKENS * 4,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            text = response.choices[0].message.content or ""
     except Exception:  # The explanation is never load-bearing; detection has already run.
         logger.warning("Explanation call failed for %s; using fallback", assessment.transaction_id, exc_info=True)
         return _fallback(subject, assessment, rules)
