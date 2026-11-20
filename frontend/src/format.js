@@ -65,11 +65,14 @@ export function formatRate(rate) {
 }
 
 const EXPLANATION_SOURCES = {
-  model: "Written by Claude from the indicators listed. Claude explains the score; it did not set it.",
-  no_api_key: "Assembled from the detector output, because no Anthropic API key is configured.",
+  model:
+    "Written by a language model from the indicators listed. The model explains the score; it did not set it.",
+  no_api_key: "Assembled from the detector output, because no language model API key is configured.",
   no_indicators:
-    "Assembled from the detector output. No indicators were triggered, so there was nothing for Claude to explain.",
-  model_unavailable: "Assembled from the detector output, because Claude could not be reached.",
+    "Assembled from the detector output. No indicators were triggered, so there was nothing for the model to explain.",
+  model_unavailable: "Assembled from the detector output, because the language model could not be reached.",
+  rate_limited:
+    "Assembled from the detector output, because the demo's language model budget is used up for now. The score is unaffected.",
 };
 
 /** Fixed lookup: `explanation_source` arrives as an enum value and is never shown raw. */

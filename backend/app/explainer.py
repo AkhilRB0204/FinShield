@@ -12,6 +12,10 @@ describes its own subject (``detection.transaction_subject``,
 ``_fallback`` builds the same shape of explanation deterministically from the
 flag details, so the system keeps explaining itself when no API key is
 configured or the call fails.
+
+Which model writes the text is chosen in ``llm`` (Claude, Gemini or a local
+model through Ollama); the prompt, the parsing and the fallback are the same
+for all of them.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from typing import TYPE_CHECKING, Literal, Mapping, Optional
 
 from pydantic import BaseModel
 
+from . import llm
 from .models import ExplanationSubject, RiskAssessment
 from .rules import RULES, RuleConfig
 
@@ -74,8 +79,8 @@ def system_prompt(subject: ExplanationSubject) -> str:
 
 # no_indicators: nothing fired, so the model is not asked. no_api_key: no key is
 # configured. model_unavailable: the SDK is missing, the call failed, or the reply
-# did not parse.
-FallbackReason = Literal["no_indicators", "no_api_key", "model_unavailable"]
+# did not parse. rate_limited: the demo's model budget is spent for now.
+FallbackReason = Literal["no_indicators", "no_api_key", "model_unavailable", "rate_limited"]
 
 
 class Explanation(BaseModel):
@@ -190,33 +195,57 @@ def _fallback(
 
 
 def explain(
-    subject: ExplanationSubject, assessment: RiskAssessment, rules: Registry = RULES
+    subject: ExplanationSubject,
+    assessment: RiskAssessment,
+    rules: Registry = RULES,
+    allow_model: bool = True,
 ) -> Explanation:
     """Turn a computed assessment into reader-facing language.
 
     ``rules`` is the registry the assessment's flags came from, for their labels.
     Falls back to a deterministic explanation when the SDK or API key is missing,
-    when the call raises, or when the reply does not parse.
+    when the call raises, when the reply does not parse, or when the caller passes
+    ``allow_model=False`` because its call budget is spent.
     """
     # With no indicators there is nothing for the model to explain, and asking it
     # to anyway invites it to invent one.
     if not assessment.flags:
         return _fallback(subject, assessment, rules, "no_indicators")
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not llm.is_configured():
         return _fallback(subject, assessment, rules, "no_api_key")
-    client = _client()
-    if client is None:
-        return _fallback(subject, assessment, rules, "model_unavailable")
+    if not allow_model:
+        return _fallback(subject, assessment, rules, "rate_limited")
 
+    system = system_prompt(subject)
+    user = _prompt(subject, assessment, rules)
     try:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            system=system_prompt(subject),
-            messages=[{"role": "user", "content": _prompt(subject, assessment, rules)}],
-        )
-        text = "".join(block.text for block in response.content if block.type == "text")
+        if llm.provider() == "anthropic":
+            client = _client()
+            if client is None:
+                return _fallback(subject, assessment, rules, "model_unavailable")
+            response = client.messages.create(
+                model=llm.model_name(MODEL),
+                max_tokens=MAX_TOKENS,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            text = "".join(block.text for block in response.content if block.type == "text")
+        else:
+            compat = llm.openai_client()
+            if compat is None:
+                return _fallback(subject, assessment, rules, "model_unavailable")
+            response = compat.chat.completions.create(
+                model=llm.model_name(MODEL),
+                # Thinking models count their reasoning against this limit, so it
+                # is larger than the reply itself needs.
+                max_tokens=MAX_TOKENS * 4,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+            text = response.choices[0].message.content or ""
     except Exception:  # The explanation is never load-bearing; detection has already run.
         logger.warning("Explanation call failed for %s; using fallback", assessment.transaction_id, exc_info=True)
         return _fallback(subject, assessment, rules)

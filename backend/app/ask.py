@@ -27,6 +27,7 @@ from typing import Any, Callable, Optional
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .detection import category_label, compound_multiplier
+from . import llm
 from .explainer import _client, indicator_label
 from .models import RiskAssessment, RiskLevel, Transaction
 from .repository import TransactionRepository
@@ -501,9 +502,35 @@ def _strip_citations(text: str) -> str:
     return text.strip()
 
 
+_TOO_MANY_LOOKUPS = (
+    "This question needed more lookups than one answer allows, so it was not answered. "
+    "Try asking about one customer, one indicator or a narrower date range."
+)
+
+
+def _final(text: str, seen_ids: set[str], calls: list[ToolCall]) -> Answer:
+    """The answer text with its citations taken out and returned separately."""
+    cited = list(dict.fromkeys(i for i in _ID_RE.findall(text) if i in seen_ids))
+    return Answer(text=_strip_citations(text), transaction_ids=cited, calls=calls)
+
+
 def answer(question: str, repo: TransactionRepository) -> Answer:
     """Answer ``question`` from tool results only. Raises ``AskUnavailable`` when
-    the model cannot be used."""
+    the model cannot be used.
+
+    The provider is chosen in ``llm``. Claude uses its own tool-calling format;
+    Gemini and Ollama share the OpenAI-compatible one. Both loops run the same
+    tools with the same validation, so the answer is grounded the same way.
+    """
+    if not llm.is_configured():
+        raise AskUnavailable("no_api_key")
+    if llm.provider() == "anthropic":
+        return _answer_anthropic(question, repo)
+    return _answer_compatible(question, repo)
+
+
+def _answer_anthropic(question: str, repo: TransactionRepository) -> Answer:
+    """The question loop on Claude's tool-calling format."""
     client = _client()
     if client is None:
         raise AskUnavailable("no_api_key")
@@ -515,7 +542,7 @@ def answer(question: str, repo: TransactionRepository) -> Answer:
     for _ in range(MAX_ROUNDS):
         try:
             response = client.beta.messages.create(
-                model=MODEL,
+                model=llm.model_name(MODEL),
                 max_tokens=MAX_TOKENS,
                 system=SYSTEM_PROMPT,
                 tools=TOOLS,
@@ -535,8 +562,7 @@ def answer(question: str, repo: TransactionRepository) -> Answer:
             if response.stop_reason == "max_tokens":
                 raise AskUnavailable("model_unavailable")
             text = "".join(block.text for block in response.content if block.type == "text")
-            cited = list(dict.fromkeys(i for i in _ID_RE.findall(text) if i in seen_ids))
-            return Answer(text=_strip_citations(text), transaction_ids=cited, calls=calls)
+            return _final(text, seen_ids, calls)
 
         # The whole assistant turn goes back unchanged, thinking blocks included.
         messages.append({"role": "assistant", "content": response.content})
@@ -554,11 +580,110 @@ def answer(question: str, repo: TransactionRepository) -> Answer:
             )
         messages.append({"role": "user", "content": results})
 
-    return Answer(
-        text=(
-            "This question needed more lookups than one answer allows, so it was not answered. "
-            "Try asking about one customer, one indicator or a narrower date range."
-        ),
-        transaction_ids=[],
-        calls=calls,
-    )
+    return Answer(text=_TOO_MANY_LOOKUPS, transaction_ids=[], calls=calls)
+
+
+# --- OpenAI-compatible providers (Gemini, Ollama) -----------------------------------
+
+# Output budget per turn. Thinking models spend part of it reasoning.
+COMPATIBLE_MAX_TOKENS = 8192
+
+
+def _without_additional_properties(schema: Any) -> Any:
+    """The schema with ``additionalProperties`` removed at every level.
+
+    Gemini's function declarations accept only a subset of JSON Schema and reject
+    that keyword. Nothing is loosened by dropping it: every call is still
+    validated by the tool's own model, which forbids unknown arguments.
+    """
+    if isinstance(schema, dict):
+        return {k: _without_additional_properties(v) for k, v in schema.items() if k != "additionalProperties"}
+    if isinstance(schema, list):
+        return [_without_additional_properties(v) for v in schema]
+    return schema
+
+
+def compatible_tools() -> list[dict[str, Any]]:
+    """``TOOLS`` in the OpenAI function-calling format."""
+    converted = []
+    for tool in TOOLS:
+        function: dict[str, Any] = {"name": tool["name"], "description": tool["description"]}
+        parameters = _without_additional_properties(tool["input_schema"])
+        # A tool with no arguments declares none, rather than an empty object.
+        if parameters.get("properties"):
+            function["parameters"] = parameters
+        converted.append({"type": "function", "function": function})
+    return converted
+
+
+def _answer_compatible(question: str, repo: TransactionRepository) -> Answer:
+    """The question loop on the OpenAI-compatible format used by Gemini and Ollama."""
+    client = llm.openai_client()
+    if client is None:
+        raise AskUnavailable("model_unavailable")
+
+    tools = compatible_tools()
+    messages: list[dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+    calls: list[ToolCall] = []
+    seen_ids: set[str] = set()
+
+    for round_number in range(MAX_ROUNDS):
+        try:
+            response = client.chat.completions.create(
+                model=llm.model_name(MODEL),
+                messages=messages,
+                tools=tools,
+                max_tokens=COMPATIBLE_MAX_TOKENS,
+            )
+        except Exception as err:  # Questions are never load-bearing; detection has already run.
+            logger.warning("Question call failed", exc_info=True)
+            raise AskUnavailable("model_unavailable") from err
+
+        if not response.choices:
+            raise AskUnavailable("model_unavailable")
+        choice = response.choices[0]
+        message = choice.message
+        tool_calls = message.tool_calls or []
+
+        if not tool_calls:
+            text = message.content or ""
+            if choice.finish_reason == "length" or not text.strip():
+                raise AskUnavailable("model_unavailable")
+            return _final(text, seen_ids, calls)
+
+        ids = [call.id or f"call_{round_number}_{index}" for index, call in enumerate(tool_calls)]
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": [
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": call.function.name, "arguments": call.function.arguments or "{}"},
+                    }
+                    for call_id, call in zip(ids, tool_calls)
+                ],
+            }
+        )
+        for call_id, call in zip(ids, tool_calls):
+            name = call.function.name
+            try:
+                raw_input = json.loads(call.function.arguments or "{}")
+            except json.JSONDecodeError:
+                raw_input = None
+            if isinstance(raw_input, dict):
+                content, is_error = _run_tool(repo, name, raw_input)
+            else:
+                raw_input, content, is_error = {}, "Arguments must be a JSON object.", True
+            calls.append(_label_call(name, raw_input))
+            if not is_error:
+                seen_ids.update(_ID_RE.findall(content))
+            messages.append(
+                {"role": "tool", "tool_call_id": call_id, "content": f"Error: {content}" if is_error else content}
+            )
+
+    return Answer(text=_TOO_MANY_LOOKUPS, transaction_ids=[], calls=calls)
