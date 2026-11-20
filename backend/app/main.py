@@ -15,16 +15,17 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from functools import lru_cache
-from typing import Literal, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
 from .ask import AskUnavailable
 from .ask import answer as answer_question
 from .detection import assess, category_label, compound_multiplier, transaction_subject
+from . import limits, llm
 from .explainer import Explanation, explain, indicator_label
 from .generator import CITIES
 from .message_detection import assess_message, message_subject
@@ -196,11 +197,44 @@ class TransactionView(BaseModel):
 # Where an explanation came from: "model", or why the deterministic fallback was
 # used ("no_indicators", "no_api_key", "model_unavailable"). An enum like
 # ``risk_level``: the client maps it to display text through a fixed lookup.
-ExplanationSource = Literal["model", "no_indicators", "no_api_key", "model_unavailable"]
+ExplanationSource = Literal["model", "no_indicators", "no_api_key", "model_unavailable", "rate_limited"]
 
 
 def explanation_source(written: Explanation) -> ExplanationSource:
     return "model" if written.source == "model" else written.fallback_reason or "model_unavailable"
+
+
+# Model-written explanations of stored transactions, keyed by transaction and by
+# the provider and model that wrote them. Stored assessments never change, so an
+# explanation written once can be served again without another model call.
+# Fallbacks are not kept: the next request should get a chance at the model.
+_EXPLANATION_CACHE: dict[tuple[str, str, str], Explanation] = {}
+_EXPLANATION_CACHE_MAX = 10_000
+
+
+def _explain(
+    http_request: Request,
+    subject: Any,
+    assessment: RiskAssessment,
+    rules: Any,
+    cache_id: Optional[str] = None,
+) -> Explanation:
+    """``explain``, with the cache for stored transactions and the demo's model
+    budget. A budget is only spent when the model would actually be called."""
+    key = (cache_id, llm.provider(), llm.model_name("default")) if cache_id else None
+    if key is not None and key in _EXPLANATION_CACHE:
+        return _EXPLANATION_CACHE[key]
+
+    allow = True
+    if assessment.flags and llm.is_configured():
+        allow = limits.EXPLANATIONS.take(limits.visitor(http_request)) is None
+    written = explain(subject, assessment, rules, allow_model=allow)
+
+    if key is not None and written.source == "model":
+        if len(_EXPLANATION_CACHE) >= _EXPLANATION_CACHE_MAX:
+            _EXPLANATION_CACHE.clear()
+        _EXPLANATION_CACHE[key] = written
+    return written
 
 
 class TransactionDetail(TransactionView):
@@ -339,6 +373,7 @@ def health() -> dict[str, str]:
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(
     request: AnalyzeRequest,
+    http_request: Request,
     explanation: bool = Query(True, description="Include a plain-English explanation."),
     repo: TransactionRepository = Depends(get_repository),
 ) -> AnalyzeResponse:
@@ -357,7 +392,7 @@ def analyze(
     if not explanation:
         return AnalyzeResponse(assessment=view)
 
-    written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
+    written = _explain(http_request, transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
     return AnalyzeResponse(
         assessment=view,
         explanation=written.explanation,
@@ -378,6 +413,7 @@ class AnalyzeMessageRequest(BaseModel):
 @app.post("/analyze-message", response_model=AnalyzeResponse)
 def analyze_message(
     request: AnalyzeMessageRequest,
+    http_request: Request,
     explanation: bool = Query(True, description="Include a plain-English explanation."),
 ) -> AnalyzeResponse:
     """Score one message with the message rules. The response has the same shape
@@ -388,7 +424,7 @@ def analyze_message(
     if not explanation:
         return AnalyzeResponse(assessment=view)
 
-    written = explain(message_subject(request.text, MESSAGE_REVIEW_THRESHOLD), assessment, MESSAGE_RULES)
+    written = _explain(http_request, message_subject(request.text, MESSAGE_REVIEW_THRESHOLD), assessment, MESSAGE_RULES)
     return AnalyzeResponse(
         assessment=view,
         explanation=written.explanation,
@@ -450,6 +486,7 @@ def list_transactions(
 @app.get("/transactions/{transaction_id}", response_model=TransactionDetail)
 def get_transaction(
     transaction_id: str,
+    http_request: Request,
     explanation: bool = Query(True, description="Include a plain-English explanation."),
     repo: TransactionRepository = Depends(get_repository),
 ) -> TransactionDetail:
@@ -469,7 +506,13 @@ def get_transaction(
         breakdown=ScoreBreakdown.of(assessment, repo.review_threshold),
     )
     if explanation:
-        written = explain(transaction_subject(txn, repo.review_threshold), assessment, repo.rules)
+        written = _explain(
+            http_request,
+            transaction_subject(txn, repo.review_threshold),
+            assessment,
+            repo.rules,
+            cache_id=transaction_id,
+        )
         detail.explanation = written.explanation
         detail.action = written.action
         detail.explanation_source = explanation_source(written)
@@ -485,14 +528,29 @@ _ASK_UNAVAILABLE = {
 }
 
 
+_ASK_LIMITED = {
+    "visitor": "You've asked several questions in the last minute. Try again shortly.",
+    "daily": "The demo has used today's question budget. Questions will be available again tomorrow.",
+}
+
+
 @app.post("/ask", response_model=AskResponse)
-def ask(request: AskRequest, repo: TransactionRepository = Depends(get_repository)) -> AskResponse:
+def ask(
+    request: AskRequest,
+    http_request: Request,
+    repo: TransactionRepository = Depends(get_repository),
+) -> AskResponse:
     """Answer a question about the dataset from lookups only.
 
     The model reads transactions, assessments, aggregates and the rule registry
     through read-only tools and reports what they return. It never scores
     anything. ``checked`` lists every lookup it made.
     """
+    # Only a question that would reach a model spends from the budget.
+    if llm.is_configured():
+        denied = limits.QUESTIONS.take(limits.visitor(http_request))
+        if denied is not None:
+            raise HTTPException(status_code=429, detail=_ASK_LIMITED[denied], headers={"Retry-After": "60"})
     try:
         result = answer_question(request.question, repo)
     except AskUnavailable as err:

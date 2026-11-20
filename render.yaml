@@ -35,3 +35,14 @@ services:
       # explanations use the deterministic fallback and questions are unavailable.
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Language-model budgets for the public demo. Scores never count against
+      # them; past a limit, explanations use the fallback and /ask returns 429.
+      # Per visitor per minute, and in total per UTC day. 0 disables a limit.
+      - key: ASK_PER_MINUTE
+        value: "5"
+      - key: ASK_PER_DAY
+        value: "100"
+      - key: EXPLAIN_PER_MINUTE
+        value: "20"
+      - key: EXPLAIN_PER_DAY
+        value: "500"

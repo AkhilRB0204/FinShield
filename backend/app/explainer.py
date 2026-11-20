@@ -79,8 +79,8 @@ def system_prompt(subject: ExplanationSubject) -> str:
 
 # no_indicators: nothing fired, so the model is not asked. no_api_key: no key is
 # configured. model_unavailable: the SDK is missing, the call failed, or the reply
-# did not parse.
-FallbackReason = Literal["no_indicators", "no_api_key", "model_unavailable"]
+# did not parse. rate_limited: the demo's model budget is spent for now.
+FallbackReason = Literal["no_indicators", "no_api_key", "model_unavailable", "rate_limited"]
 
 
 class Explanation(BaseModel):
@@ -195,13 +195,17 @@ def _fallback(
 
 
 def explain(
-    subject: ExplanationSubject, assessment: RiskAssessment, rules: Registry = RULES
+    subject: ExplanationSubject,
+    assessment: RiskAssessment,
+    rules: Registry = RULES,
+    allow_model: bool = True,
 ) -> Explanation:
     """Turn a computed assessment into reader-facing language.
 
     ``rules`` is the registry the assessment's flags came from, for their labels.
     Falls back to a deterministic explanation when the SDK or API key is missing,
-    when the call raises, or when the reply does not parse.
+    when the call raises, when the reply does not parse, or when the caller passes
+    ``allow_model=False`` because its call budget is spent.
     """
     # With no indicators there is nothing for the model to explain, and asking it
     # to anyway invites it to invent one.
@@ -210,6 +214,8 @@ def explain(
 
     if not llm.is_configured():
         return _fallback(subject, assessment, rules, "no_api_key")
+    if not allow_model:
+        return _fallback(subject, assessment, rules, "rate_limited")
 
     system = system_prompt(subject)
     user = _prompt(subject, assessment, rules)

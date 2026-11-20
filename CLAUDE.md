@@ -35,6 +35,10 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
 
 - `backend/app/models.py` — domain models (`Transaction`, `UserProfile`, `FraudFlag`, `RiskAssessment`).
 - `backend/app/generator.py` — deterministic synthetic dataset generator (`generate_dataset`).
+- `backend/app/evaluate.py` — evaluation harness (`evaluate`, `sweep`): episode recall and false
+  positives on seeded synthetic data. Callable in-process; `python -m app.evaluate` prints a sweep.
+- `backend/app/llm.py` — which language model provider is configured (Claude, Gemini, Ollama).
+- `backend/app/limits.py` — per-visitor and daily budgets for model calls. Scoring never spends one.
 
 ## Dev
 
@@ -42,4 +46,7 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+
+# Reproduce the detector's numbers (threshold sweep over five seeded datasets)
+python -m app.evaluate
 ```

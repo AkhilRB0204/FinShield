@@ -116,7 +116,7 @@ function AskAnswer({ question }) {
       )}
       <Checked calls={checked} />
       <p className="explanation-source">
-        Written by Claude from the lookups listed. Claude reports what they returned; it did not score anything.
+        Written by a language model from the lookups listed. The model reports what they returned; it did not score anything.
       </p>
     </div>
   );
