@@ -28,26 +28,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .detection import category_label, compound_multiplier
 from . import llm
-from .explainer import _client, indicator_label
+from .explainer import indicator_label
 from .models import RiskAssessment, RiskLevel, Transaction
 from .repository import TransactionRepository
 from .rules import COMPOUND_BONUS_PER_FLAG, COMPOUND_MAX_MULTIPLIER, COMPOUND_MIN_FLAGS, MAX_SCORE
 
-try:
-    import anthropic
-except ImportError:  # pragma: no cover
-    anthropic = None  # type: ignore[assignment]
-
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-opus-5-5"
-MAX_TOKENS = 16000
 # Model turns per question. A question that needs more lookups than this gets a
 # plain "could not answer" rather than a guess.
 MAX_ROUNDS = 8
-# Refusals are retried server-side on the model Anthropic recommends for the
-# refusal's category.
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 SEARCH_LIMIT_DEFAULT = 20
 SEARCH_LIMIT_MAX = 50
@@ -518,69 +508,12 @@ def answer(question: str, repo: TransactionRepository) -> Answer:
     """Answer ``question`` from tool results only. Raises ``AskUnavailable`` when
     the model cannot be used.
 
-    The provider is chosen in ``llm``. Claude uses its own tool-calling format;
-    Gemini and Ollama share the OpenAI-compatible one. Both loops run the same
-    tools with the same validation, so the answer is grounded the same way.
+    The provider is chosen in ``llm``. Gemini and Ollama share the
+    OpenAI-compatible tool-calling format, so one loop serves both.
     """
     if not llm.is_configured():
         raise AskUnavailable("no_api_key")
-    if llm.provider() == "anthropic":
-        return _answer_anthropic(question, repo)
     return _answer_compatible(question, repo)
-
-
-def _answer_anthropic(question: str, repo: TransactionRepository) -> Answer:
-    """The question loop on Claude's tool-calling format."""
-    client = _client()
-    if client is None:
-        raise AskUnavailable("no_api_key")
-
-    messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
-    calls: list[ToolCall] = []
-    seen_ids: set[str] = set()
-
-    for _ in range(MAX_ROUNDS):
-        try:
-            response = client.beta.messages.create(
-                model=llm.model_name(MODEL),
-                max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
-                tools=TOOLS,
-                messages=messages,
-                output_config={"effort": "medium"},
-                betas=[FALLBACK_BETA],
-                fallbacks="default",
-            )
-        except Exception as err:  # Questions are never load-bearing; detection has already run.
-            logger.warning("Question call failed", exc_info=True)
-            raise AskUnavailable("model_unavailable") from err
-
-        if response.stop_reason == "refusal":
-            return Answer(text="This question can't be answered here.", transaction_ids=[], calls=calls)
-
-        if response.stop_reason != "tool_use":
-            if response.stop_reason == "max_tokens":
-                raise AskUnavailable("model_unavailable")
-            text = "".join(block.text for block in response.content if block.type == "text")
-            return _final(text, seen_ids, calls)
-
-        # The whole assistant turn goes back unchanged, thinking blocks included.
-        messages.append({"role": "assistant", "content": response.content})
-        results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            raw_input = block.input if isinstance(block.input, dict) else {}
-            calls.append(_label_call(block.name, raw_input))
-            content, is_error = _run_tool(repo, block.name, raw_input)
-            if not is_error:
-                seen_ids.update(_ID_RE.findall(content))
-            results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": content, "is_error": is_error}
-            )
-        messages.append({"role": "user", "content": results})
-
-    return Answer(text=_TOO_MANY_LOOKUPS, transaction_ids=[], calls=calls)
 
 
 # --- OpenAI-compatible providers (Gemini, Ollama) -----------------------------------
@@ -633,7 +566,7 @@ def _answer_compatible(question: str, repo: TransactionRepository) -> Answer:
     for round_number in range(MAX_ROUNDS):
         try:
             response = client.chat.completions.create(
-                model=llm.model_name(MODEL),
+                model=llm.model_name(),
                 messages=messages,
                 tools=tools,
                 max_tokens=COMPATIBLE_MAX_TOKENS,

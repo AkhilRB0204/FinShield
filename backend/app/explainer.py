@@ -13,17 +13,16 @@ describes its own subject (``detection.transaction_subject``,
 flag details, so the system keeps explaining itself when no API key is
 configured or the call fails.
 
-Which model writes the text is chosen in ``llm`` (Claude, Gemini or a local
-model through Ollama); the prompt, the parsing and the fallback are the same
-for all of them.
+Which model writes the text is chosen in ``llm`` (Gemini, or a local model
+through Ollama); the prompt, the parsing and the fallback are the same for
+both.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 import re
-from typing import TYPE_CHECKING, Literal, Mapping, Optional
+from typing import Literal, Mapping, Optional
 
 from pydantic import BaseModel
 
@@ -31,18 +30,11 @@ from . import llm
 from .models import ExplanationSubject, RiskAssessment
 from .rules import RULES, RuleConfig
 
-try:  # The SDK is optional at runtime: detection and the fallback never need it.
-    import anthropic
-except ImportError:  # pragma: no cover
-    anthropic = None  # type: ignore[assignment]
-
-if TYPE_CHECKING:
-    from anthropic import Anthropic
-
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-5"
-MAX_TOKENS = 300
+# Thinking models count their reasoning against this limit, so it is larger than
+# the two-to-four-sentence reply itself needs.
+MAX_TOKENS = 1200
 
 Registry = Mapping[str, RuleConfig]
 
@@ -99,19 +91,6 @@ def indicator_label(rule: str, rules: Registry = RULES) -> str:
     if cfg is not None:
         return cfg.label
     return rule.replace("_", " ").capitalize()
-
-
-_CLIENT: Optional["Anthropic"] = None
-
-
-def _client() -> Optional["Anthropic"]:
-    """The shared client, or ``None`` when the SDK or the API key is missing."""
-    global _CLIENT
-    if anthropic is None or not os.environ.get("ANTHROPIC_API_KEY"):
-        return None
-    if _CLIENT is None:
-        _CLIENT = anthropic.Anthropic()
-    return _CLIENT
 
 
 def _prompt(subject: ExplanationSubject, assessment: RiskAssessment, rules: Registry) -> str:
@@ -219,33 +198,19 @@ def explain(
 
     system = system_prompt(subject)
     user = _prompt(subject, assessment, rules)
+    client = llm.openai_client()
+    if client is None:
+        return _fallback(subject, assessment, rules, "model_unavailable")
     try:
-        if llm.provider() == "anthropic":
-            client = _client()
-            if client is None:
-                return _fallback(subject, assessment, rules, "model_unavailable")
-            response = client.messages.create(
-                model=llm.model_name(MODEL),
-                max_tokens=MAX_TOKENS,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-            )
-            text = "".join(block.text for block in response.content if block.type == "text")
-        else:
-            compat = llm.openai_client()
-            if compat is None:
-                return _fallback(subject, assessment, rules, "model_unavailable")
-            response = compat.chat.completions.create(
-                model=llm.model_name(MODEL),
-                # Thinking models count their reasoning against this limit, so it
-                # is larger than the reply itself needs.
-                max_tokens=MAX_TOKENS * 4,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            )
-            text = response.choices[0].message.content or ""
+        response = client.chat.completions.create(
+            model=llm.model_name(),
+            max_tokens=MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+        )
+        text = response.choices[0].message.content or ""
     except Exception:  # The explanation is never load-bearing; detection has already run.
         logger.warning("Explanation call failed for %s; using fallback", assessment.transaction_id, exc_info=True)
         return _fallback(subject, assessment, rules)

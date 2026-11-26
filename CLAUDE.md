@@ -9,7 +9,7 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
   decisions — never approximate, round away, or "smooth" them, and never introduce randomness
   or model calls into the scoring path.
 - **An LLM explains decisions; it never makes them.** Whichever provider is configured in
-  `backend/app/llm.py` (Claude, Gemini, or a local model through Ollama) may only turn an
+  `backend/app/llm.py` (Gemini, or a local model through Ollama) may only turn an
   already-computed `RiskAssessment` into human-readable language. It must not change a score,
   add or remove flags, pick a risk level, or decide an outcome. If the LLM is unavailable,
   detection still works.
@@ -37,7 +37,7 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
 - `backend/app/generator.py` — deterministic synthetic dataset generator (`generate_dataset`).
 - `backend/app/evaluate.py` — evaluation harness (`evaluate`, `sweep`): episode recall and false
   positives on seeded synthetic data. Callable in-process; `python -m app.evaluate` prints a sweep.
-- `backend/app/llm.py` — which language model provider is configured (Claude, Gemini, Ollama).
+- `backend/app/llm.py` — which language model provider is configured (Gemini, or Ollama for local development).
 - `backend/app/limits.py` — per-visitor and daily budgets for model calls. Scoring never spends one.
 
 ## Dev
