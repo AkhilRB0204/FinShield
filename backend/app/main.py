@@ -221,7 +221,7 @@ def _explain(
 ) -> Explanation:
     """``explain``, with the cache for stored transactions and the demo's model
     budget. A budget is only spent when the model would actually be called."""
-    key = (cache_id, llm.provider(), llm.model_name("default")) if cache_id else None
+    key = (cache_id, llm.provider(), llm.model_name()) if cache_id else None
     if key is not None and key in _EXPLANATION_CACHE:
         return _EXPLANATION_CACHE[key]
 
@@ -522,7 +522,7 @@ def get_transaction(
 _ASK_UNAVAILABLE = {
     "no_api_key": (
         "Questions need a language model, and none is configured. "
-        "Set GEMINI_API_KEY (or ANTHROPIC_API_KEY) on the server."
+        "Set GEMINI_API_KEY on the server."
     ),
     "model_unavailable": "The question could not be answered because the language model could not be reached.",
 }
