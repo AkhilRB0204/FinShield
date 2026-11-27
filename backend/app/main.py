@@ -33,6 +33,7 @@ from .message_rules import MESSAGE_RULES
 from .message_rules import REVIEW_THRESHOLD as MESSAGE_REVIEW_THRESHOLD
 from .models import Category, FraudFlag, RiskAssessment, RiskLevel, Transaction, UserProfile
 from .repository import InMemoryRepository, TransactionRepository
+from .sql_repository import SqliteRepository
 from .rules import MAX_SCORE, RuleConfig
 
 load_dotenv()
@@ -61,8 +62,17 @@ app.add_middleware(
 
 
 @lru_cache(maxsize=1)
-def _default_repository() -> InMemoryRepository:
-    return InMemoryRepository.from_generated()
+def _default_repository() -> TransactionRepository:
+    """The store chosen by ``STORAGE``: ``sqlite`` (the default) keeps the data in
+    SQL tables; ``memory`` keeps it in Python lists and dicts. Both hold the same
+    generated dataset and return the same results. ``SQLITE_PATH`` optionally
+    puts the SQLite database in a file instead of memory."""
+    storage = os.environ.get("STORAGE", "sqlite").strip().lower()
+    if storage == "memory":
+        return InMemoryRepository.from_generated()
+    if storage == "sqlite":
+        return SqliteRepository.from_generated(path=os.environ.get("SQLITE_PATH", ":memory:"))
+    raise RuntimeError(f"Unknown STORAGE {storage!r}: use 'sqlite' or 'memory'.")
 
 
 def get_repository() -> TransactionRepository:

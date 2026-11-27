@@ -38,6 +38,11 @@ Transaction fraud detection system. Backend lives in `backend/` (FastAPI, Python
 - `backend/app/evaluate.py` — evaluation harness (`evaluate`, `sweep`): episode recall and false
   positives on seeded synthetic data. Callable in-process; `python -m app.evaluate` prints a sweep.
 - `backend/app/llm.py` — which language model provider is configured (Claude, Gemini, Ollama).
+- `backend/app/repository.py` — the `TransactionRepository` protocol the API depends on, and the
+  in-memory store.
+- `backend/app/sql_repository.py` — the SQL store (SQLite): customers, transactions, assessments
+  and flags tables. Chosen with `STORAGE=sqlite` (default) or `memory`; both must return identical
+  results, which `tests/test_sql_repository.py` checks.
 - `backend/app/limits.py` — per-visitor and daily budgets for model calls. Scoring never spends one.
 
 ## Dev
@@ -49,4 +54,7 @@ pip install -r requirements.txt
 
 # Reproduce the detector's numbers (threshold sweep over five seeded datasets)
 python -m app.evaluate
+
+# Tests (pytest is a dev dependency, not in requirements.txt)
+pip install pytest && python -m pytest tests
 ```
