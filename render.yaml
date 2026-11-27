@@ -46,3 +46,8 @@ services:
         value: "20"
       - key: EXPLAIN_PER_DAY
         value: "500"
+      # Where the API keeps its data: sqlite (SQL tables, the default) or memory.
+      # The demo dataset is regenerated on every start, so the database lives in
+      # memory unless SQLITE_PATH names a file.
+      - key: STORAGE
+        value: sqlite
